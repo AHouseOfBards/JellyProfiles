@@ -12,5 +12,7 @@ namespace Jellyfin.Profiles.Models
         public string? MaxParentalRating { get; set; }
         public List<Guid>? EnabledFolders { get; set; }
         public string? MasterPin { get; set; }
+        /// <summary>Minutes of inactivity before auto-lock. 0 = never. Null = leave unchanged.</summary>
+        public int? LockoutMinutes { get; set; }
     }
 }

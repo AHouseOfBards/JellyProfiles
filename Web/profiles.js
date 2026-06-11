@@ -10,6 +10,8 @@
         isManageMode: false,
         masterPin: null,
         cachedProfiles: [],
+        inactivityTimer: null,
+        inactivityEventHandlers: null,
 
         getAuthHeaders: function (token) {
             const apiClient = ApiClient;
@@ -69,6 +71,8 @@
             this.bindEvents();
             this.injectStyles();
             this.validateSessionState();
+            // If the user refreshes while a profile is active, restart the inactivity timer
+            setTimeout(() => this.initLockoutTimer(), 800);
         },
 
         bindEvents: function () {
@@ -316,7 +320,8 @@
                     avatarInitial: p.avatarInitial || p.AvatarInitial,
                     avatarColor: p.avatarColor || p.AvatarColor,
                     requiresPin: p.requiresPin !== undefined ? p.requiresPin : p.RequiresPin,
-                    isMaster: p.isMaster !== undefined ? p.isMaster : p.IsMaster
+                    isMaster: p.isMaster !== undefined ? p.isMaster : p.IsMaster,
+                    lockoutMinutes: p.lockoutMinutes !== undefined ? p.lockoutMinutes : (p.LockoutMinutes !== undefined ? p.LockoutMinutes : 5)
                 }));
                 this.cachedProfiles = normalized;
                 this.showProfileOverlay(normalized);
@@ -328,6 +333,9 @@
         },
 
         showProfileOverlay: function (profiles) {
+            // Always stop the inactivity timer when showing the profile selector
+            this.stopInactivityTimer();
+
             const skinHeader = document.querySelector('.skinHeader');
             if (skinHeader) skinHeader.style.display = 'none';
 
@@ -362,6 +370,84 @@
             const viewHome = document.getElementById('view-home');
             if (viewHome) viewHome.style.filter = '';
         },
+
+        // ─── Inactivity Lockout Timer ─────────────────────────────────────────────
+
+        // Called on page load when an active profile session already exists.
+        // Fetches /list (using the master token) to find the active profile's
+        // lockout setting, then arms the inactivity timer.
+        initLockoutTimer: function () {
+            if (!this.isProfileSessionActive()) return;
+
+            const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
+            if (!masterState || !masterState.masterToken) return;
+
+            const apiClient = ApiClient;
+            if (!apiClient) return;
+
+            const currentUserId = typeof apiClient.getCurrentUserId === 'function'
+                ? apiClient.getCurrentUserId() : null;
+            if (!currentUserId) return;
+
+            const url = apiClient.getUrl('plugins/profiles/list');
+            fetch(url, { headers: this.getAuthHeaders(masterState.masterToken) })
+            .then(res => { if (!res.ok) throw new Error('fail'); return res.json(); })
+            .then(profiles => {
+                const active = (profiles || []).find(p => {
+                    const id = p.profileUserId || p.ProfileUserId;
+                    return this.normalizeGuid(id) === this.normalizeGuid(currentUserId);
+                });
+                if (!active) return;
+                const requiresPin = active.requiresPin !== undefined ? active.requiresPin : active.RequiresPin;
+                if (!requiresPin) return; // No PIN = no lockout
+                const minutes = active.lockoutMinutes !== undefined ? active.lockoutMinutes
+                    : (active.LockoutMinutes !== undefined ? active.LockoutMinutes : 5);
+                if (minutes > 0) this.startInactivityTimer(minutes);
+            })
+            .catch(() => { /* silent — lockout timer is best-effort */ });
+        },
+
+        // Arms the inactivity timer. Resets on any user interaction.
+        // Any device event (mouse, keyboard, touch, scroll) counts as activity,
+        // making this safe for TV remotes and game pads.
+        startInactivityTimer: function (minutes) {
+            this.stopInactivityTimer();
+            const ms = minutes * 60 * 1000;
+            const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel', 'click'];
+
+            const resetTimer = () => {
+                clearTimeout(this.inactivityTimer);
+                this.inactivityTimer = setTimeout(() => this.lockActiveProfile(), ms);
+            };
+
+            events.forEach(ev => document.addEventListener(ev, resetTimer, { passive: true }));
+            this.inactivityEventHandlers = { resetTimer, events };
+            resetTimer(); // Arm immediately
+        },
+
+        stopInactivityTimer: function () {
+            clearTimeout(this.inactivityTimer);
+            this.inactivityTimer = null;
+            if (this.inactivityEventHandlers) {
+                const { resetTimer, events } = this.inactivityEventHandlers;
+                events.forEach(ev => document.removeEventListener(ev, resetTimer));
+                this.inactivityEventHandlers = null;
+            }
+        },
+
+        // Called when the inactivity timer fires. Clears the active session,
+        // restores master credentials, then shows the profile selector.
+        lockActiveProfile: function () {
+            this.stopInactivityTimer();
+            sessionStorage.removeItem(this.config.activeSessionKey);
+            const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
+            if (masterState) {
+                this.updateStoredCredentials(masterState.masterToken, masterState.masterUserId);
+                ApiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
+            }
+            this.interceptHomeAndShowProfiles();
+        },
+
 
         renderOverlayContent: function (overlay, profiles) {
             const title = this.isManageMode ? "Manage Profiles" : "Who's Watching?";
@@ -808,6 +894,19 @@
                             <input type="password" id="create-pin-input" maxlength="8" pattern="[0-9]*" inputmode="numeric" placeholder="Leave empty for no PIN" />
                         </div>
                         <div class="form-group">
+                            <label>Auto-lock after inactivity</label>
+                            <select id="create-lockout-select">
+                                <option value="0">Never</option>
+                                <option value="1">1 minute</option>
+                                <option value="5" selected>5 minutes (default)</option>
+                                <option value="10">10 minutes</option>
+                                <option value="20">20 minutes</option>
+                                <option value="30">30 minutes</option>
+                                <option value="60">1 hour</option>
+                            </select>
+                            <div class="form-hint">Only applies when this profile has a PIN set</div>
+                        </div>
+                        <div class="form-group">
                             <label>Avatar Color</label>
                             <div class="avatar-color-picker">
                                 <div class="color-dot active" style="background-color: #00A4DC" data-color="#00A4DC" tabindex="0"></div>
@@ -906,6 +1005,7 @@
                     const name = document.getElementById('create-name-input').value.trim();
                     const pin = document.getElementById('create-pin-input').value;
                     const rating = document.getElementById('create-rating-select').value;
+                    const lockoutMinutes = parseInt(document.getElementById('create-lockout-select').value, 10);
                     
                     const checkedLibs = [];
                     content.querySelectorAll('.library-checkbox:checked').forEach(cb => {
@@ -935,7 +1035,8 @@
                             avatarColor: selectedColor,
                             maxParentalRating: rating || null,
                             enabledFolders: checkedLibs,
-                            masterPin: this.masterPin
+                            masterPin: this.masterPin,
+                            lockoutMinutes: lockoutMinutes
                         })
                     })
                     .then(res => {
@@ -978,6 +1079,7 @@
                 const blockedFolders = policy.BlockedMediaFolders || policy.blockedMediaFolders || [];
                 const enableAll = policy.EnableAllFolders !== undefined ? policy.EnableAllFolders : (policy.enableAllFolders || false);
                 const maxRating = policy.MaxParentalRating !== undefined ? policy.MaxParentalRating : (policy.maxParentalRating !== undefined ? policy.maxParentalRating : null);
+                const currentLockout = profile.lockoutMinutes !== undefined ? profile.lockoutMinutes : 5;
 
                 const content = document.querySelector('.profiles-modal-content');
 
@@ -995,6 +1097,20 @@
                                 <input type="password" id="edit-pin-input" maxlength="8" pattern="[0-9]*" inputmode="numeric" placeholder="${profile.requiresPin ? '••••' : 'Unprotected'}" style="flex:1;" />
                                 ${profile.requiresPin ? `<button id="edit-clear-pin-btn" class="profiles-btn btn-secondary" style="padding:10px 15px;">Clear PIN</button>` : ''}
                             </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Auto-lock after inactivity</label>
+                            <select id="edit-lockout-select">
+                                <option value="0" ${currentLockout === 0 ? 'selected' : ''}>Never</option>
+                                <option value="1" ${currentLockout === 1 ? 'selected' : ''}>1 minute</option>
+                                <option value="5" ${currentLockout === 5 ? 'selected' : ''}>5 minutes</option>
+                                <option value="10" ${currentLockout === 10 ? 'selected' : ''}>10 minutes</option>
+                                <option value="20" ${currentLockout === 20 ? 'selected' : ''}>20 minutes</option>
+                                <option value="30" ${currentLockout === 30 ? 'selected' : ''}>30 minutes</option>
+                                <option value="60" ${currentLockout === 60 ? 'selected' : ''}>1 hour</option>
+                            </select>
+                            <div class="form-hint">Only applies when a PIN is set on this profile</div>
                         </div>
 
                         <div class="form-group">
@@ -1139,6 +1255,8 @@
                             checkedLibs.push(cb.value);
                         });
                     }
+                    const lockoutSel = document.getElementById('edit-lockout-select');
+                    const lockoutMinutes = lockoutSel ? parseInt(lockoutSel.value, 10) : undefined;
 
                     if (!name) {
                         alert("Profile name is required.");
@@ -1170,7 +1288,8 @@
                             avatarColor: selectedColor,
                             maxParentalRating: rating || null,
                             enabledFolders: checkedLibs,
-                            masterPin: this.masterPin
+                            masterPin: this.masterPin,
+                            lockoutMinutes: lockoutMinutes
                         })
                     })
                     .then(res => {
@@ -1649,6 +1768,12 @@
                 }
                 .library-check-label input {
                     cursor: pointer; accent-color: #00a4dc;
+                }
+                .form-hint {
+                    font-size: 0.78rem;
+                    color: rgba(255,255,255,0.4);
+                    margin-top: -0.2rem;
+                    text-align: left;
                 }
 
                 /* Keyframe Animations */

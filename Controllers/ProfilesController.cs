@@ -95,7 +95,8 @@ namespace Jellyfin.Profiles.Controllers
                 AvatarInitial = string.IsNullOrEmpty(masterUser.Username) ? "M" : masterUser.Username.Substring(0, 1).ToUpper(),
                 AvatarColor = masterMapping?.AvatarColor ?? "#00A4DC",
                 RequiresPin = masterMapping != null && !string.IsNullOrEmpty(masterMapping.PinHash),
-                IsMaster = true
+                IsMaster = true,
+                LockoutMinutes = masterMapping?.LockoutMinutes ?? 5
             });
 
             // Add all shadow profiles
@@ -108,7 +109,8 @@ namespace Jellyfin.Profiles.Controllers
                     AvatarInitial = string.IsNullOrEmpty(m.ProfileName) ? "?" : m.ProfileName.Substring(0, 1).ToUpper(),
                     m.AvatarColor,
                     RequiresPin = !string.IsNullOrEmpty(m.PinHash),
-                    IsMaster = false
+                    IsMaster = false,
+                    m.LockoutMinutes
                 });
 
             profileList.AddRange(shadowProfiles);
@@ -294,7 +296,8 @@ namespace Jellyfin.Profiles.Controllers
                 ProfileName = request.ProfileName,
                 PinHash = HashPin(request.Pin),
                 AvatarColor = request.AvatarColor,
-                IsHidden = true
+                IsHidden = true,
+                LockoutMinutes = request.LockoutMinutes ?? 5
             });
 
             Plugin.Instance?.SaveConfiguration();
@@ -753,6 +756,12 @@ namespace Jellyfin.Profiles.Controllers
                 else if (request.Pin != null)
                 {
                     mappingEntry.PinHash = HashPin(request.Pin);
+                }
+
+                // Handle lockout timer update
+                if (request.LockoutMinutes.HasValue)
+                {
+                    mappingEntry.LockoutMinutes = request.LockoutMinutes.Value;
                 }
             }
 
