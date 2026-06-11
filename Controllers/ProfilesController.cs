@@ -44,27 +44,7 @@ namespace Jellyfin.Profiles.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public ActionResult<IEnumerable<object>> GetProfiles()
         {
-            _logger.LogInformation("ProfilesPlugin: GetProfiles endpoint hit.");
-            if (Request != null && Request.Headers != null)
-            {
-                foreach (var header in Request.Headers)
-                {
-                    if (header.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase) || 
-                        header.Key.Equals("X-Emby-Authorization", StringComparison.OrdinalIgnoreCase) ||
-                        header.Key.Contains("Token", StringComparison.OrdinalIgnoreCase))
-                    {
-                        _logger.LogInformation("ProfilesPlugin Header: {Key} = {Value}", header.Key, header.Value.ToString());
-                    }
-                }
-            }
-            _logger.LogInformation("ProfilesPlugin: User.Identity.IsAuthenticated = {IsAuthenticated}", User?.Identity?.IsAuthenticated);
-            if (User?.Claims != null)
-            {
-                foreach (var claim in User.Claims)
-                {
-                    _logger.LogInformation("ProfilesPlugin: Claim Type = {Type}, Value = {Value}", claim.Type, claim.Value);
-                }
-            }
+            _logger.LogDebug("ProfilesPlugin: GetProfiles endpoint called.");
 
             var config = Plugin.Instance?.Configuration;
             if (config == null) return BadRequest("Plugin configuration missing.");

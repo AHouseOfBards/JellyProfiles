@@ -3,10 +3,18 @@
     "category": "General",
     "guid": "b1462fca-774b-4b13-8d02-e2d4f2bc18b9",
     "name": "Profiles Management",
-    "description": "Adds Netflix-style multi-user profiles to Jellyfin. Allows a single account to have multiple isolated profiles with separate watch history, parental controls, and library access.",
-    "overview": "Adds Netflix-style multi-user profiles to Jellyfin.",
+    "description": "Adds multi-user profile switching to Jellyfin. A single account can have up to five isolated profiles with separate watch history, parental controls, and library access.",
+    "overview": "Multi-user profile switching for Jellyfin.",
     "owner": "AHouseOfBards",
     "versions": [
+      {
+        "version": "1.0.7.0",
+        "changelog": "Security: removed debug logging that wrote full Authorization header values (including live session tokens) to the Jellyfin log on every /list call. Tokens are no longer written to any log file. Also updated plugin description in the catalog.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.7/Jellyfin.Profiles.zip",
+        "checksum": "PLACEHOLDER",
+        "timestamp": "2026-06-11T20:11:00Z"
+      },
       {
         "version": "1.0.6.0",
         "changelog": "Fix: Switch Profile button rendering as a full-height bar on some Jellyfin installations. Root cause: Jellyfin's React layout applies CSS transforms to body and inner containers, causing position:fixed to be contained by the transformed element instead of the viewport. Fix: fallback button is now appended to the html element (outside the transform chain) with all styles set inline. Also improved header container detection to use a parent-of-existing-button strategy, making it work across Jellyfin versions that use different class names.",
