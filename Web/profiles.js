@@ -554,11 +554,13 @@
             pinInput.addEventListener('input', () => {
                 clearError();
                 clearTimeout(autoSubmitTimer);
-                // Auto-submit after 600ms pause once 4+ digits are entered
+                // Auto-submit after 1500ms pause once 4+ digits are entered.
+                // 1500ms gives users with longer PINs (up to 8 digits) enough time
+                // to finish typing before the submit fires.
                 if (pinInput.value.length >= 4) {
                     autoSubmitTimer = setTimeout(() => {
                         this.executeProfileSwitch(profileId, pinInput.value, showPinError);
-                    }, 600);
+                    }, 1500);
                 }
             });
 
@@ -626,7 +628,7 @@
                 clearError();
                 clearTimeout(autoSubmitTimer);
                 if (pinInput.value.length >= 4) {
-                    autoSubmitTimer = setTimeout(() => submitPin(), 600);
+                    autoSubmitTimer = setTimeout(() => submitPin(), 1500);
                 }
             });
 
