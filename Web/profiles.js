@@ -1174,8 +1174,19 @@
                                 </label>
                             </div>
                             <div class="library-checklist">
-                                ${normalizedLibs.map(lib => {
-                                    const isChecked = enableAll || !blockedFolders.some(bf => this.normalizeGuid(bf) === this.normalizeGuid(lib.id));
+                        ${normalizedLibs.map(lib => {
+                                    // Use the plugin's own stored EnabledFolders as ground truth.
+                                    // Falls back to the BlockedMediaFolders approach only for legacy profiles
+                                    // that predate this field (will auto-migrate on next profile switch).
+                                    const storedFolders = profile.enabledFolders;
+                                    let isChecked;
+                                    if (storedFolders !== null && storedFolders !== undefined) {
+                                        // Ground truth: a folder is enabled only if explicitly listed
+                                        isChecked = storedFolders.some(id => this.normalizeGuid(id) === this.normalizeGuid(lib.id));
+                                    } else {
+                                        // Legacy fallback: infer from Jellyfin policy BlockedMediaFolders
+                                        isChecked = enableAll || !blockedFolders.some(bf => this.normalizeGuid(bf) === this.normalizeGuid(lib.id));
+                                    }
                                     return `
                                         <label class="library-check-label">
                                             <input type="checkbox" class="library-checkbox" value="${lib.id}" ${isChecked ? 'checked' : ''} />

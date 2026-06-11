@@ -110,7 +110,8 @@ namespace Jellyfin.Profiles.Controllers
                     m.AvatarColor,
                     RequiresPin = !string.IsNullOrEmpty(m.PinHash),
                     IsMaster = false,
-                    m.LockoutMinutes
+                    m.LockoutMinutes,
+                    EnabledFolders = m.EnabledFolders ?? new List<Guid>()
                 });
 
             profileList.AddRange(shadowProfiles);
@@ -297,7 +298,9 @@ namespace Jellyfin.Profiles.Controllers
                 PinHash = HashPin(request.Pin),
                 AvatarColor = request.AvatarColor,
                 IsHidden = true,
-                LockoutMinutes = request.LockoutMinutes ?? 5
+                LockoutMinutes = request.LockoutMinutes ?? 5,
+                // Store the selected libraries as the plugin's own ground truth
+                EnabledFolders = request.EnabledFolders?.ToList() ?? new List<Guid>()
             });
 
             Plugin.Instance?.SaveConfiguration();
@@ -444,26 +447,54 @@ namespace Jellyfin.Profiles.Controllers
                 targetPolicy.IsDisabled = false;
                 targetPolicy.MaxParentalRating = childMaxParentalRating;
 
-                // Restrict folder access if master user has limitations
-                if (!masterPolicy.EnableAllFolders)
+                // Determine the authoritative enabled-folder list:
+                //  - If the plugin mapping has a stored list (EnabledFolders != null), use it as ground truth.
+                //    This survives Jellyfin restarts that reset user policies.
+                //  - If EnabledFolders is null (profile predates this field), fall back to the Jellyfin policy
+                //    and auto-migrate by saving the list into the mapping now.
+                List<Guid> authorityFolders;
+                if (mapping?.EnabledFolders != null)
                 {
-                    targetPolicy.EnableAllFolders = false;
-                    var masterBlocked = masterPolicy.BlockedMediaFolders ?? Array.Empty<Guid>();
-                    var childBlocked = childBlockedFolders ?? Array.Empty<Guid>();
-                    targetPolicy.BlockedMediaFolders = childBlocked.Union(masterBlocked).ToArray();
-
-                    var masterEnabled = masterPolicy.EnabledFolders ?? Array.Empty<Guid>();
-                    var childEnabled = childEnableAllFolders
-                        ? masterEnabled
-                        : (childEnabledFolders ?? Array.Empty<Guid>());
-                    targetPolicy.EnabledFolders = childEnabled.Intersect(masterEnabled).ToArray();
+                    authorityFolders = mapping.EnabledFolders;
                 }
                 else
                 {
-                    targetPolicy.EnableAllFolders = childEnableAllFolders;
-                    targetPolicy.EnabledFolders = childEnabledFolders;
-                    targetPolicy.BlockedMediaFolders = childBlockedFolders;
+                    // Legacy profile: read from Jellyfin policy and migrate
+                    var legacyEnabled = childEnableAllFolders
+                        ? (masterPolicy.EnabledFolders ?? Array.Empty<Guid>()).ToList()
+                        : (childEnabledFolders ?? Array.Empty<Guid>()).ToList();
+
+                    // If still empty, derive from BlockedMediaFolders
+                    if (legacyEnabled.Count == 0 && childBlockedFolders != null && childBlockedFolders.Length > 0)
+                    {
+                        var allFolderIds = _libraryManager.GetVirtualFolders()
+                            .Select(f => Guid.TryParse(f.ItemId, out var fid) ? fid : Guid.Empty)
+                            .Where(fid => fid != Guid.Empty)
+                            .ToList();
+                        legacyEnabled = allFolderIds.Where(fid => !childBlockedFolders.Contains(fid)).ToList();
+                    }
+
+                    authorityFolders = legacyEnabled;
+
+                    // Persist the migration so we never need this fallback again
+                    if (mapping != null)
+                    {
+                        mapping.EnabledFolders = authorityFolders;
+                        Plugin.Instance?.SaveConfiguration();
+                    }
                 }
+
+                // Re-apply the stored library policy (heals resets caused by Jellyfin restarts)
+                targetPolicy.EnableAllFolders = false;
+                targetPolicy.EnabledFolders = authorityFolders.ToArray();
+
+                var allFolders2 = _libraryManager.GetVirtualFolders();
+                var reapplyBlocked = allFolders2
+                    .Select(f => Guid.TryParse(f.ItemId, out var id2) ? id2 : Guid.Empty)
+                    .Where(id2 => id2 != Guid.Empty && !authorityFolders.Contains(id2))
+                    .ToArray();
+                var masterBlocked2 = masterPolicy.BlockedMediaFolders ?? Array.Empty<Guid>();
+                targetPolicy.BlockedMediaFolders = reapplyBlocked.Union(masterBlocked2).ToArray();
 
                 await _userManager.UpdatePolicyAsync(targetUser.Id, targetPolicy).ConfigureAwait(false);
 
@@ -762,6 +793,13 @@ namespace Jellyfin.Profiles.Controllers
                 if (request.LockoutMinutes.HasValue)
                 {
                     mappingEntry.LockoutMinutes = request.LockoutMinutes.Value;
+                }
+
+                // Update stored library list (plugin's ground truth)
+                // Always set when editing a sub-profile; null means "leave unchanged" (sent by master-profile saves).
+                if (request.EnabledFolders != null)
+                {
+                    mappingEntry.EnabledFolders = request.EnabledFolders.ToList();
                 }
             }
 
