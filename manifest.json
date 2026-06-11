@@ -12,7 +12,7 @@
         "changelog": "Fix: 'Add Profile' card no longer appears when the profile limit has been reached — the server's configured limit is now passed to the client so the UI can show a count instead. Fix: validation and API errors in the Create Profile form are now shown inline within the form rather than as native browser alert dialogs.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.8/Jellyfin.Profiles.zip",
-        "checksum": "PLACEHOLDER",
+        "checksum": "8c17e0f10ced8b59022b3b78b92dcb02",
         "timestamp": "2026-06-11T22:16:00Z"
       },
       {
