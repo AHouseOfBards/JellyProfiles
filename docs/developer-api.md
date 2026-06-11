@@ -53,7 +53,8 @@ Returns all profiles available to the authenticated user.
     "avatarColor": "#00A4DC",
     "requiresPin": true,
     "isMaster": true,
-    "lockoutMinutes": 10
+    "lockoutMinutes": 10,
+    "maxSubProfiles": 5
   },
   {
     "profileUserId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b",
@@ -77,6 +78,7 @@ Returns all profiles available to the authenticated user.
 | `requiresPin` | `boolean` | Whether a PIN is required to select this profile |
 | `isMaster` | `boolean` | Whether this entry is the master account |
 | `lockoutMinutes` | `integer` | Minutes of inactivity before auto-lock. `0` = never. Only relevant when `requiresPin` is `true`. |
+| `maxSubProfiles` | `integer` | Maximum number of sub-profiles allowed for this master account. Only present on the master entry (`isMaster: true`). Configured by the server admin. Use this to conditionally hide or disable your "Add Profile" UI when the count of sub-profiles equals this value. |
 | `enabledFolders` | `string[]` | Library GUIDs this profile can access. Only present on sub-profiles (`isMaster: false`). Empty array means no library access. Use this to pre-populate a library selector in your management UI. |
 
 ---
@@ -172,14 +174,25 @@ sequenceDiagram
 
 ### Storage Requirements
 
-Maintain two separate credential stores:
+Maintain separate stores for master credentials, the active session, and profile display state:
 
-| Store | Contents | Lifetime |
-|---|---|---|
-| **Master credentials** | Master `userId` + Master `token` | Cleared on logout |
-| **Active profile token** | `activeProfileToken` + profile `userId` | Cleared when returning to profile selector |
+| Store | Key | Contents | Lifetime |
+|---|---|---|---|
+| **Master credentials** | `jellyfin_profiles_master_state` (`localStorage`) | Master `userId` + Master `token` | Cleared on logout |
+| **Active profile token** | `jellyfin_profiles_active_token` (`sessionStorage`) | `activeProfileToken` + profile `userId` | Cleared when returning to profile selector |
+| **Active profile display info** | `jellyfin_profiles_active_info` (`sessionStorage`) | `name`, `color`, `initial` of the active profile | Cleared when returning to profile selector |
 
 On app launch, if a master token exists but no active profile token is stored, show the profile selection screen before any home content.
+
+The `jellyfin_profiles_active_info` key is optional but useful for displaying the currently active profile name and avatar color in your UI without a separate API call. Its value is a JSON object:
+
+```json
+{
+  "name": "Kids",
+  "color": "#EC4899",
+  "initial": "K"
+}
+```
 
 ---
 
@@ -231,9 +244,10 @@ To let users switch profiles from within the app (a button in the nav bar, a set
 
 1. Stop the inactivity lockout timer.
 2. Restore the master token as the active session in your API client.
-3. Clear the stored active profile token.
-4. Call `GET /list` again to refresh the profile list.
-5. Show the profile selection screen.
+3. Clear the stored active profile token (`jellyfin_profiles_active_token`).
+4. Clear the active profile display info (`jellyfin_profiles_active_info`).
+5. Call `GET /list` again to refresh the profile list.
+6. Show the profile selection screen.
 
 ---
 
@@ -319,6 +333,12 @@ The button is hidden on all Jellyfin server management pages (users, libraries, 
 
 When hiding, the button fades out over 150 ms rather than disappearing instantly. The plugin detects the video player by checking for the OSD element in the DOM — the button hides as soon as the player UI appears, regardless of whether the URL has changed.
 
+### Active Profile Indicator
+
+When a profile session is active, the button displays the current profile's avatar — a colored circle containing the profile's initial — rather than a generic icon. This gives the user a persistent, at-a-glance reminder of which profile they are in.
+
+The active profile name, color, and initial are stored in `sessionStorage` under the key `jellyfin_profiles_active_info` at the moment of profile selection. Custom web clients and web-based TV integrations can read this key to render the same indicator in their own UI without an additional API call.
+
 ### D-pad Navigation (Tizen / webOS)
 
 From the home content grid:
@@ -341,9 +361,21 @@ function switchProfile() {
     const masterState = JSON.parse(localStorage.getItem('jellyfin_profiles_master_state'));
     if (!masterState) return;
     sessionStorage.removeItem('jellyfin_profiles_active_token');
+    sessionStorage.removeItem('jellyfin_profiles_active_info');
     ApiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
     window.location.reload(); // or navigate to your own profile selector screen
 }
+```
+
+After a successful `POST /switch`, store the active profile's display info so your UI can show the indicator without an extra call:
+
+```javascript
+// After POST /switch returns 200:
+sessionStorage.setItem('jellyfin_profiles_active_info', JSON.stringify({
+    name: selectedProfile.profileName,
+    color: selectedProfile.avatarColor,
+    initial: selectedProfile.avatarInitial
+}));
 ```
 
 ---
@@ -653,6 +685,34 @@ element.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         element.click();
+    }
+});
+```
+
+**Color picker navigation in management UI:** If your management UI includes an avatar color picker (a row of color swatches), register `ArrowLeft` / `ArrowRight` on the container to move focus between swatches. This is how the plugin's own create/edit form handles D-pad navigation through the color options:
+
+```javascript
+container.addEventListener('keydown', (e) => {
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target.classList.contains('color-swatch')) {
+        e.preventDefault();
+        const swatches = Array.from(container.querySelectorAll('.color-swatch'));
+        const idx = swatches.indexOf(e.target);
+        if (e.key === 'ArrowLeft' && idx > 0) swatches[idx - 1].focus();
+        else if (e.key === 'ArrowRight' && idx < swatches.length - 1) swatches[idx + 1].focus();
+    }
+    // ArrowUp / ArrowDown for vertically stacked checkbox lists
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.target.type === 'checkbox') {
+        e.preventDefault();
+        const boxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+        const idx = boxes.indexOf(e.target);
+        if (e.key === 'ArrowUp' && idx > 0) boxes[idx - 1].focus();
+        else if (e.key === 'ArrowDown' && idx < boxes.length - 1) boxes[idx + 1].focus();
+    }
+    // Enter to toggle a focused checkbox (some TV browsers don't fire click on Enter for checkboxes)
+    if (e.key === 'Enter' && e.target.type === 'checkbox') {
+        e.preventDefault();
+        e.target.checked = !e.target.checked;
+        e.target.dispatchEvent(new Event('change'));
     }
 });
 ```
