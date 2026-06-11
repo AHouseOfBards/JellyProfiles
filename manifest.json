@@ -12,7 +12,7 @@
         "changelog": "Initial release.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.0/Jellyfin.Profiles.zip",
-        "checksum": "PASTE_MD5_HASH_HERE",
+        "checksum": "4d60f997f3a2b9ce7494c3a737777f00",
         "timestamp": "2026-06-11T00:00:00Z"
       }
     ]
