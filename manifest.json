@@ -12,7 +12,7 @@
         "changelog": "Performance: reduce route-check interval to 150ms; add DOM-based video player detection so the Switch Profile button hides the instant the OSD appears (no URL change needed). UX: button now fades out smoothly instead of jumping. Fix: button no longer appears on any admin/dashboard page — hidden across all server-management routes except the Profiles plugin settings page. Fix: clicking the button now dims it immediately to confirm the tap registered. Fix: eliminated race condition where rapid React re-renders could destroy the button element mid-click.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.5/Jellyfin.Profiles.zip",
-        "checksum": "PLACEHOLDER",
+        "checksum": "201cf78070abc5c38a5f5317a070c3e8",
         "timestamp": "2026-06-11T19:46:00Z"
       },
       {
