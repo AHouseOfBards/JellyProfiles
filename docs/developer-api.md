@@ -1,36 +1,37 @@
 # Jellyfin Profiles Plugin — Developer API Reference
 
-**Plugin ID:** `b1462fca-774b-4b13-8d02-e2d4f2bc18b9`
-**Compatible with:** Jellyfin Server 10.11.x (10.11.0 – 10.11.11)
-**Base path:** All endpoints are relative to your Jellyfin server root: `https://<server>/plugins/profiles/`
+**Plugin ID:** `b1462fca-774b-4b13-8d02-e2d4f2bc18b9`  
+**Compatible with:** Jellyfin Server 10.11.x (10.11.0 – 10.11.11)  
+**Base path:** `https://<server>/plugins/profiles/`
 
 ---
 
 ## Overview
 
-The Profiles Plugin adds Netflix-style profile switching to Jellyfin. It creates isolated Jellyfin user accounts (sub-profiles) under a primary master account. When a profile is selected, the plugin issues a scoped session token for that profile — giving it fully isolated watch history, parental controls, and library access without requiring a separate Jellyfin login.
+The Profiles plugin adds profile switching to Jellyfin. Each master account can have up to five sub-profiles, each backed by a real Jellyfin user account. Selecting a profile issues a scoped session token for that user, giving it isolated watch history, parental controls, and library access.
 
-As a third-party client, your responsibilities are to:
-1. Detect that the plugin is active and fetch the profile list after login.
-2. Display a profile selection screen before showing the home view.
-3. Swap your active session token after the user selects a profile.
+As a third-party client, you need to:
+
+1. Detect that the plugin is installed and fetch the profile list after the master user logs in.
+2. Show a profile selection screen before displaying home content.
+3. Replace your active session token when a profile is selected.
 4. Provide a way to return to the profile selector at any time.
-5. Implement the inactivity lockout timer if the selected profile has a `lockoutMinutes` setting greater than zero.
+5. Implement the inactivity lockout timer for profiles that have one configured.
 
 ---
 
 ## Authentication
 
-Every request to the plugin API must include a standard Jellyfin authorization header. Use the **Master User's token** for all profile management and list calls. After a successful profile switch, use the **returned profile token** for all subsequent Jellyfin API calls.
+Every request to the plugin API requires a standard Jellyfin authorization header. Use the **master user's token** for all management and list calls. After a successful `/switch`, use the **returned profile token** for all subsequent Jellyfin API calls.
 
 ```
 Authorization: MediaBrowser Client="<AppName>", Device="<DeviceName>", DeviceId="<UniqueId>", Version="<AppVersion>", Token="<token>"
 ```
 
-Both `Authorization` and `X-Emby-Authorization` header names are accepted.
+Both `Authorization` and `X-Emby-Authorization` are accepted.
 
 > [!IMPORTANT]
-> Never log the full `Authorization` header or any token value to the browser console, device logs, or analytics. Tokens grant full API access to the associated Jellyfin user.
+> Never log the full `Authorization` header or any token value. Tokens grant full API access to the associated Jellyfin user.
 
 ---
 
@@ -38,7 +39,7 @@ Both `Authorization` and `X-Emby-Authorization` header names are accepted.
 
 ### `GET /plugins/profiles/list`
 
-Returns all profiles available to the authenticated user, including the master profile and all sub-profiles.
+Returns all profiles available to the authenticated user.
 
 **Authorization:** Master User token
 
@@ -61,7 +62,8 @@ Returns all profiles available to the authenticated user, including the master p
     "avatarColor": "#EC4899",
     "requiresPin": false,
     "isMaster": false,
-    "lockoutMinutes": 0
+    "lockoutMinutes": 0,
+    "enabledFolders": ["e67b2d5a39cb400ba45a7b0a70198de7"]
   }
 ]
 ```
@@ -70,17 +72,18 @@ Returns all profiles available to the authenticated user, including the master p
 |---|---|---|
 | `profileUserId` | `string (GUID)` | Jellyfin user ID for this profile |
 | `profileName` | `string` | Display name |
-| `avatarInitial` | `string` | Single character initial for the avatar |
+| `avatarInitial` | `string` | First character of the display name |
 | `avatarColor` | `string` | Hex color for the avatar background |
 | `requiresPin` | `boolean` | Whether a PIN is required to select this profile |
 | `isMaster` | `boolean` | Whether this entry is the master account |
-| `lockoutMinutes` | `integer` | Minutes of inactivity before auto-lock. `0` = never. Only enforced when `requiresPin` is `true`. |
+| `lockoutMinutes` | `integer` | Minutes of inactivity before auto-lock. `0` = never. Only relevant when `requiresPin` is `true`. |
+| `enabledFolders` | `string[]` | Library GUIDs this profile can access. Only present on sub-profiles (`isMaster: false`). Empty array means no library access. Use this to pre-populate a library selector in your management UI. |
 
 ---
 
 ### `POST /plugins/profiles/switch`
 
-Authenticates a profile selection and returns a scoped session token. This token must replace your client's active session immediately.
+Authenticates a profile selection and returns a scoped session token.
 
 **Authorization:** Master User token
 
@@ -95,7 +98,7 @@ Authenticates a profile selection and returns a scoped session token. This token
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `profileId` | `string (GUID)` | Yes | The `profileUserId` of the profile to switch to |
-| `pin` | `string` | Conditional | Required only if `requiresPin` is `true` for this profile |
+| `pin` | `string` | Conditional | Required only when `requiresPin` is `true` |
 
 **Response `200 OK`:**
 ```json
@@ -106,20 +109,20 @@ Authenticates a profile selection and returns a scoped session token. This token
 ```
 
 > [!IMPORTANT]
-> You must replace your client's active token and user ID with these values immediately. All subsequent Jellyfin API calls — library browsing, playback, progress reporting — must use `activeProfileToken` and `jellyfinUserId`. Store the original Master token separately so the user can switch profiles again later.
+> Replace your active token and user ID with these values immediately. All subsequent Jellyfin API calls — library browsing, playback, progress reporting — must use `activeProfileToken` and `jellyfinUserId`. Store the original master token separately so the user can switch profiles again later.
 
 **Error responses:**
 
 | Status | Meaning |
 |---|---|
-| `401 Unauthorized` | PIN was incorrect, or caller is not authorized to switch to this profile |
-| `404 Not Found` | The specified `profileId` does not exist |
+| `401 Unauthorized` | PIN was incorrect, or the caller is not permitted to switch to this profile |
+| `404 Not Found` | `profileId` does not exist |
 
 ---
 
 ### `POST /plugins/profiles/verify-pin`
 
-Validates a PIN for a given profile **without** performing a session switch. Use this to silently check a PIN as the user types (see [Silent PIN Verification](#silent-pin-verification)), or to pre-validate the master PIN before management operations.
+Validates a PIN without performing a session switch. Used for silent keystroke verification (see [Silent PIN Verification](#silent-pin-verification)) and for pre-validating the master PIN before management operations.
 
 **Authorization:** Master User token
 
@@ -169,28 +172,28 @@ sequenceDiagram
 
 ### Storage Requirements
 
-Your client must maintain two separate credential stores:
+Maintain two separate credential stores:
 
 | Store | Contents | Lifetime |
 |---|---|---|
 | **Master credentials** | Master `userId` + Master `token` | Cleared on logout |
 | **Active profile token** | `activeProfileToken` + profile `userId` | Cleared when returning to profile selector |
 
-On app launch, if a master token is stored but no active profile token exists, show the profile selection screen before any home content.
+On app launch, if a master token exists but no active profile token is stored, show the profile selection screen before any home content.
 
 ---
 
 ### Silent PIN Verification
 
-Rather than requiring the user to press a submit button, the recommended UX is to silently call `POST /verify-pin` after every digit is entered. When the response is `200 OK`, immediately call `POST /switch` to complete the session swap. This creates a zero-friction experience where the correct PIN auto-submits regardless of its length.
+The recommended UX is to call `POST /verify-pin` silently after every digit is entered. When the server returns `200 OK`, call `POST /switch` immediately — the user never needs to press a submit button. The correct PIN length (4–8 digits) auto-submits whenever it matches.
 
 **Rules:**
-- Only start calling `verify-pin` once 4 or more digits have been entered (minimum PIN length).
-- Cancel any in-flight verify request when a new digit is typed (use `AbortController` or equivalent). Only the most recent request matters.
-- On a `401` response, do **nothing** — the user is still typing their full PIN.
-- On network error, do nothing — the user can still submit manually.
-- Only show an error (red border, inline text) if the user explicitly presses Enter or a submit button while the PIN is wrong.
-- When `verify-pin` returns `200`, use the captured PIN value at that moment to call `POST /switch`.
+- Start calling `verify-pin` only once 4 or more digits have been entered.
+- Cancel any in-flight verify request when a new digit is typed. Only the most recent request matters.
+- On a `401` response, do nothing — the user is still typing.
+- On network error, do nothing — the user can still submit manually with Enter.
+- Only show an error (red border, inline message) if the user explicitly submits with Enter or a submit button while the PIN is wrong.
+- When `verify-pin` returns `200`, use the PIN value captured at that moment to call `POST /switch`.
 
 ```javascript
 let verifyController = null;
@@ -200,7 +203,6 @@ pinInput.addEventListener('input', () => {
     const value = pinInput.value;
     if (value.length < 4 || switchInProgress) return;
 
-    // Cancel previous in-flight check
     if (verifyController) verifyController.abort();
     verifyController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
@@ -225,40 +227,40 @@ pinInput.addEventListener('input', () => {
 
 ### Returning to the Profile Selector
 
-To allow users to switch profiles from within the app (e.g., via a button in the navigation bar):
+To let users switch profiles from within the app (a button in the nav bar, a settings option, etc.):
 
-1. Stop the inactivity lockout timer (if running).
-2. Restore the **Master token** as the active session token in your API client.
+1. Stop the inactivity lockout timer.
+2. Restore the master token as the active session in your API client.
 3. Clear the stored active profile token.
-4. Call `GET /list` again to refresh the profile list before display.
+4. Call `GET /list` again to refresh the profile list.
 5. Show the profile selection screen.
 
 ---
 
 ### Inactivity Auto-lock
 
-Each profile exposes a `lockoutMinutes` field. When this value is greater than zero **and** the profile `requiresPin` is `true`, your client must implement an inactivity lockout timer.
+Each profile exposes a `lockoutMinutes` field. When this value is greater than zero **and** the profile has `requiresPin: true`, implement an inactivity lockout timer.
 
 **Behavior:**
 - Start the timer immediately after a successful profile switch.
-- Reset the timer on any user interaction: mouse move, click, keydown, touchstart, scroll, pointermove, pointerdown.
-- When the timer fires, perform the "Return to Profile Selector" sequence — clear the active session and show the profile chooser.
-- Stop the timer whenever the profile selector is visible (to prevent double-firing).
+- Reset it on any user interaction: mouse move, click, keydown, touchstart, scroll, pointermove, pointerdown.
+- When the timer fires, perform the return-to-selector sequence — clear the active session and show the profile chooser.
+- Stop the timer while the profile selector is visible.
 
 **Lockout values:**
 
 | Value | Meaning |
 |---|---|
-| `0` | Never lock (timer disabled) |
+| `0` | Never lock |
 | `1` | 1 minute |
-| `5` | 5 minutes (server default for PIN-protected profiles) |
+| `5` | 5 minutes (default for PIN-protected profiles) |
 | `10` | 10 minutes |
 | `20` | 20 minutes |
 | `30` | 30 minutes |
 | `60` | 1 hour |
 
 > [!NOTE]
-> `lockoutMinutes` is always returned in the `/list` response but is only enforced by the client when the profile has `requiresPin: true`. A profile without a PIN is never auto-locked.
+> `lockoutMinutes` is always present in the `/list` response but only enforced when the profile has `requiresPin: true`. Profiles without a PIN are never auto-locked regardless of this value.
 
 ```javascript
 function startInactivityTimer(minutes) {
@@ -276,27 +278,79 @@ function startInactivityTimer(minutes) {
 ```
 
 > [!TIP]
-> Include `pointermove` and `pointerdown` in your inactivity event list. LG Magic Remote and similar pointer-based TV remotes generate pointer events, not mouse events.
+> Include `pointermove` and `pointerdown` in your event list. LG Magic Remote and similar pointing TV remotes generate pointer events, not mouse events.
 
 ---
 
 ### PIN Error Handling
 
-When `POST /switch` returns `401` on a PIN-protected profile (via explicit user submission), the recommended UX is to:
+When `POST /switch` returns `401` after an explicit user submission:
+
 - Clear the PIN input field.
-- Display an **inline** error message below the input (never use a modal alert — it blocks focus management on TV clients).
-- Apply a red border/glow to the PIN input field using inline styles (class-based styles can be overridden by the host app's stylesheet).
-- Keep the PIN screen open so the user can try again.
-- Clear the error the moment the user starts typing a new digit.
+- Display an **inline** error message below the input — never use a modal alert, it breaks focus management on TV clients.
+- Apply a red border/glow to the input using inline styles (class-based styles may be overridden by the host stylesheet).
+- Keep the PIN screen open so the user can retry.
+- Clear the error the moment the user starts typing again.
 
 > [!CAUTION]
-> Do **not** call `pinInput.focus()` inside an event handler that is itself triggered by focus events. Doing so creates a self-canceling loop where the error display is immediately wiped by the focus event's clear-error listener.
+> Do not call `pinInput.focus()` inside a handler that is itself triggered by focus events. This creates a loop where the error display is cleared immediately by the focus event's own listener.
+
+---
+
+## Switch Profile Button (Web Clients)
+
+The plugin injects a **Switch Profile** button into Jellyfin's header button row (next to search and the user account icon). This section describes its behavior for custom web clients and TV browser integrations.
+
+### Visibility Rules
+
+The button is only shown when a profile session is active. Within that constraint:
+
+| Context | Visible? |
+|---|---|
+| Home screen | ✅ |
+| Library / browse pages | ✅ |
+| Item detail page | ✅ |
+| Profiles plugin settings page | ✅ |
+| Active video/audio playback | ❌ |
+| Server dashboard and all admin pages | ❌ |
+| Login / server select | ❌ |
+
+The button is hidden on all Jellyfin server management pages (users, libraries, logs, tasks, plugins, network, etc.). The one exception is the Profiles plugin's own settings page (`#/configurationpage?name=Profiles`), where it remains visible.
+
+When hiding, the button fades out over 150 ms rather than disappearing instantly. The plugin detects the video player by checking for the OSD element in the DOM — the button hides as soon as the player UI appears, regardless of whether the URL has changed.
+
+### D-pad Navigation (Tizen / webOS)
+
+From the home content grid:
+
+1. Press **Up** to move focus into the header bar.
+2. Press **Left** or **Right** to navigate between header icons until the Switch Profile button is focused. The plugin's CSS gives it a visible glow on `:focus`.
+3. Press **OK / Enter / Select** to activate. This clears the active profile session and reloads the page, showing the profile selector.
+
+> [!NOTE]
+> Jellyfin's React client intercepts some arrow-key events for horizontal content row scrolling. If focus gets stuck inside a content row and pressing Up doesn't reach the header, this is the host client's focus management, not the plugin's. Custom TV clients can work around it by providing a dedicated menu button that calls the switch sequence directly.
+
+The plugin registers both a `click` handler and an explicit `keydown` handler (`Enter`/`Space`) on the button to cover platforms where injected elements don't automatically receive click events on Enter.
+
+### Custom Client Button
+
+If your client has its own dedicated "Switch Profile" button (side menu, settings panel, etc.), the action when pressed is:
+
+```javascript
+function switchProfile() {
+    const masterState = JSON.parse(localStorage.getItem('jellyfin_profiles_master_state'));
+    if (!masterState) return;
+    sessionStorage.removeItem('jellyfin_profiles_active_token');
+    ApiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
+    window.location.reload(); // or navigate to your own profile selector screen
+}
+```
 
 ---
 
 ## Profile Management (Master Only)
 
-The following endpoints are only callable by the master user. Sub-profile tokens will receive `401 Unauthorized`.
+These endpoints are only callable with the master user's token. Sub-profile tokens receive `401 Unauthorized`.
 
 ### `POST /plugins/profiles/create`
 
@@ -320,10 +374,10 @@ Creates a new sub-profile.
 | `profileName` | `string` | Yes | Display name for the new profile |
 | `pin` | `string` | No | 4–8 digit numeric PIN. Omit or pass `null` for no PIN |
 | `avatarColor` | `string` | No | Hex color for the avatar. Defaults to `#00A4DC` |
-| `maxParentalRating` | `string` | No | `"6"` (G), `"10"` (PG), `"14"` (PG-13), `"17"` (R). Omit for no restriction |
-| `enabledFolders` | `string[]` | No | Array of library IDs accessible to this profile. Pass an empty array to deny all library access |
+| `maxParentalRating` | `string` | No | `"6"` (G/TV-G), `"10"` (PG/TV-PG), `"14"` (PG-13/TV-14), `"17"` (R/TV-MA). Omit for no restriction |
+| `enabledFolders` | `string[]` | No | Library GUIDs this profile can access. Pass an empty array to deny all library access |
 | `lockoutMinutes` | `integer` | No | Inactivity lockout in minutes. `0` = never. Defaults to `5`. Only enforced when the profile has a PIN |
-| `masterPin` | `string` | Conditional | Required if the master account has a PIN and the server requires it for profile creation |
+| `masterPin` | `string` | Conditional | Required if the master account has a PIN |
 
 **Response `200 OK`:**
 ```json
@@ -337,7 +391,7 @@ Creates a new sub-profile.
 
 ### `POST /plugins/profiles/update`
 
-Updates an existing profile's name, PIN, color, parental rating, library access, or lockout timer.
+Updates an existing profile.
 
 **Request body:**
 ```json
@@ -357,18 +411,18 @@ Updates an existing profile's name, PIN, color, parental rating, library access,
 |---|---|---|---|
 | `profileId` | `string (GUID)` | Yes | The profile to update |
 | `profileName` | `string` | Yes | New display name |
-| `pin` | `string \| null` | No | Pass a new value to set/change the PIN. Pass `""` (empty string) to **remove** the PIN. Pass `null` to leave the current PIN unchanged |
+| `pin` | `string \| null` | No | Pass a new value to set or change the PIN. Pass `""` (empty string) to remove the PIN. Pass `null` to leave the current PIN unchanged |
 | `avatarColor` | `string` | No | New hex color |
-| `maxParentalRating` | `string \| null` | No | See create endpoint for values. Pass `null` to remove restriction |
+| `maxParentalRating` | `string \| null` | No | See create endpoint for valid values. Pass `null` to remove the restriction |
 | `enabledFolders` | `string[] \| null` | No | Updated library access list. Pass `null` to leave unchanged |
 | `lockoutMinutes` | `integer \| null` | No | New lockout setting. `0` = never. Pass `null` to leave unchanged |
-| `masterPin` | `string` | Conditional | Required if the master account has a PIN set |
+| `masterPin` | `string` | Conditional | Required if the master account has a PIN |
 
 ---
 
 ### `POST /plugins/profiles/delete`
 
-Permanently deletes a sub-profile and its underlying Jellyfin user account. This action is irreversible.
+Permanently deletes a sub-profile and its underlying Jellyfin user account.
 
 **Request body:**
 ```json
@@ -381,7 +435,7 @@ Permanently deletes a sub-profile and its underlying Jellyfin user account. This
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `profileId` | `string (GUID)` | Yes | The profile to delete |
-| `masterPin` | `string` | Conditional | Required if the master account has a PIN set |
+| `masterPin` | `string` | Conditional | Required if the master account has a PIN |
 
 **Response:** `200 OK` on success. `404 Not Found` if the profile does not exist.
 
@@ -389,7 +443,7 @@ Permanently deletes a sub-profile and its underlying Jellyfin user account. This
 
 ### `GET /plugins/profiles/libraries`
 
-Returns the list of media libraries visible to the currently authenticated user. Use this to populate a library access selector when creating or editing profiles.
+Returns the media libraries visible to the authenticated user. Use this to populate a library access selector when creating or editing profiles.
 
 **Response `200 OK`:**
 ```json
@@ -411,11 +465,11 @@ Returns the list of media libraries visible to the currently authenticated user.
 
 ## Server Admin Endpoints
 
-These endpoints require the caller to be a **Jellyfin server administrator**. They are intended for server management tooling only, not for end-user profile switching clients.
+These endpoints require a Jellyfin server administrator token. They are not intended for end-user profile switching clients.
 
 ### `GET /plugins/profiles/admin/mappings`
 
-Returns a full mapping of all master users and their associated sub-profiles across the entire server.
+Returns all master users and their sub-profiles across the server.
 
 **Authorization:** Server Admin token
 
@@ -444,7 +498,7 @@ Returns a full mapping of all master users and their associated sub-profiles acr
 
 ### `POST /plugins/profiles/admin/reset-pin`
 
-Removes the PIN from any profile without requiring knowledge of the existing PIN. Use this for account recovery.
+Removes the PIN from any profile without requiring the existing PIN. Intended for account recovery.
 
 **Authorization:** Server Admin token
 
@@ -463,30 +517,31 @@ Removes the PIN from any profile without requiring knowledge of the existing PIN
 
 ### Web (Desktop & Mobile Browsers)
 
-- Use the standard `fetch()` API with `AbortController` for silent PIN verification.
-- Store master credentials in `localStorage` (persists across sessions) and the active profile token in `sessionStorage` (cleared when the browser tab is closed, which forces re-selection on next visit — this is the intended security behavior).
-- On mobile, use `inputmode="numeric"` on PIN inputs to prompt the numeric keypad. Combine with `type="password"` to mask digits.
+- Use `fetch()` with `AbortController` for silent PIN verification.
+- Store master credentials in `localStorage` (persists across sessions). Store the active profile token in `sessionStorage` (cleared when the tab closes, which forces re-selection — this is expected behavior).
+- On mobile, use `inputmode="numeric"` on PIN inputs to show the numeric keypad. Combine with `type="password"` to mask digits as they're entered.
+
+---
 
 ### Mobile Native Apps (iOS / Android)
 
-- When wrapping Jellyfin in a native WebView, ensure `localStorage` and `sessionStorage` are available and not sandboxed.
-- Subscribe to app lifecycle events (`UIApplicationDidEnterBackgroundNotification` on iOS, `onPause` on Android). When the app backgrounds, consider treating it as inactivity for lockout timer purposes.
+- When wrapping Jellyfin in a native WebView, confirm that `localStorage` and `sessionStorage` are available and not sandboxed.
+- Subscribe to app lifecycle events (`UIApplicationDidEnterBackgroundNotification` on iOS, `onPause` on Android). When the app backgrounds, treat it as inactivity for lockout timer purposes.
 - `AbortController` is available in all modern WebViews (iOS 12.1+, Android Chrome 66+).
 
 ---
 
 ### Apple tvOS
 
-tvOS has a fundamentally different integration story from all other platforms. The majority of Jellyfin tvOS clients (Swiftfin being the primary one) are **fully native UIKit/SwiftUI apps** — they talk directly to the REST API over `URLSession` or equivalent, never touching the web plugin UI at all.
+Most Jellyfin tvOS clients (Swiftfin being the main one) are fully native UIKit/SwiftUI apps that call the REST API directly over `URLSession` — the web plugin UI is not involved.
 
 #### Native tvOS Apps (Swiftfin / Swift)
 
-The REST API contract is identical on tvOS — same endpoints, same request bodies, same responses. What differs is everything around the HTTP calls:
+The REST API contract is identical on tvOS. What differs is everything around the HTTP calls.
 
-**Token Storage:** Use **Keychain** (`SecItemAdd` / `SecItemCopyMatching`), not `UserDefaults`. Keychain entries survive app reinstalls if iCloud Keychain backup is enabled, are hardware-encrypted, and are properly sandboxed from other apps. `UserDefaults` is functionally equivalent to unencrypted plain text storage and is not appropriate for session tokens.
+**Token Storage:** Use **Keychain** (`SecItemAdd` / `SecItemCopyMatching`), not `UserDefaults`. Keychain entries are hardware-encrypted and properly sandboxed. `UserDefaults` is functionally equivalent to unencrypted storage and is not appropriate for session tokens.
 
 ```swift
-// Store master token in Keychain
 let query: [String: Any] = [
     kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: "JellyfinProfilesMasterToken",
@@ -495,14 +550,13 @@ let query: [String: Any] = [
 SecItemAdd(query as CFDictionary, nil)
 ```
 
-**Lockout Timer:** Use `Timer.scheduledTimer` or `DispatchQueue.asyncAfter` rather than JavaScript `setTimeout`. Subscribe to `UIApplicationWillResignActiveNotification` — this fires when the user presses the tvOS Home button, when the Apple TV auto-dims, or when the screensaver activates. On receipt, treat the app as inactive and show the profile selector on next foreground.
+**Lockout Timer:** Use `Timer.scheduledTimer` or `DispatchQueue.asyncAfter`. Subscribe to `UIApplicationWillResignActiveNotification` — this fires when the user presses the tvOS Home button, when the Apple TV auto-dims, or when the screensaver activates.
 
 ```swift
 NotificationCenter.default.addObserver(
     forName: UIApplication.willResignActiveNotification,
     object: nil, queue: .main
 ) { _ in
-    // Treat as inactivity — show profile selector on resume
     ProfileSessionManager.shared.markNeedsReselection()
 }
 
@@ -517,7 +571,7 @@ NotificationCenter.default.addObserver(
 ```
 
 > [!IMPORTANT]
-> **Do not rely on a timer firing during app suspension.** When Apple TV goes to sleep or the system suspends your app, all Swift `Timer` objects stop firing. The correct pattern is to record the timestamp when the app was last active (`Date()`), then on `didBecomeActive` compare the elapsed time against `lockoutMinutes`. If the elapsed time exceeds the threshold, force re-selection.
+> Do not rely on a timer firing during app suspension. When Apple TV goes to sleep or suspends your app, all Swift `Timer` objects stop. The correct approach is to record a timestamp when the app was last active, then on `didBecomeActive` compare the elapsed time against `lockoutMinutes`.
 
 ```swift
 // On resign active:
@@ -532,31 +586,30 @@ if let last = UserDefaults.standard.object(forKey: "lastActiveTimestamp") as? Da
 }
 ```
 
-**Siri Remote Input:** The Siri Remote provides a clickpad surface (swipe + click). In native UIKit apps, navigation is handled by tvOS's **Focus Engine** (`UIFocusEnvironment`). Profile cards should conform to `UIFocusItem` and respond to `shouldUpdateFocus`. You don't handle raw D-pad keystrokes — the Focus Engine routes navigation automatically.
+**Siri Remote Input:** In native UIKit apps, navigation is handled by tvOS's Focus Engine (`UIFocusEnvironment`). Profile cards should conform to `UIFocusItem`. You don't handle raw D-pad keystrokes — the Focus Engine routes navigation automatically.
 
-**PIN Entry:** Use a custom numpad built with `UICollectionView` or similar — do **not** use a `UITextField` with `UIKeyboardType.numberPad` as the tvOS system keyboard is always a full QWERTY overlay and ignores the `keyboardType` hint. A 10-button numeric grid (0–9 + delete) driven by Siri Remote focus gives the correct UX for tvOS.
+**PIN Entry:** Build a custom numpad with `UICollectionView` or similar — do not use `UITextField` with `UIKeyboardType.numberPad`. The tvOS system keyboard is always a full QWERTY overlay and ignores the `keyboardType` hint. A 10-button grid (0–9 + delete) driven by Siri Remote focus is the standard tvOS approach.
 
 ---
 
 #### WKWebView-based tvOS Apps
 
-Some clients embed Jellyfin's web interface in a `WKWebView`. The web plugin UI runs inside this WebView. In this context:
+Some clients embed Jellyfin's web interface in a `WKWebView`. The web plugin runs inside this WebView.
 
-**Siri Remote Events in WKWebView:** The Siri Remote touchpad generates **`mousemove` events** when swiping (not `pointermove`, not `touchmove`). Click generates a `click` event. The Menu button generates `keydown` with `key === 'Escape'`. Include `mousemove` explicitly in your inactivity event list — it will be the primary activity signal from the Siri Remote.
+**Siri Remote Events:** The Siri Remote touchpad generates `mousemove` events when swiping (not `pointermove`, not `touchmove`). Clicks generate a `click` event. The Menu button generates `keydown` with `key === 'Escape'`. Include `mousemove` explicitly in your inactivity event list.
 
 ```javascript
-// For tvOS WKWebView, mousemove is the Siri Remote swipe signal
 const events = [
-    'mousemove', 'mousedown', 'click',      // Siri Remote
-    'keydown',                               // Menu button (Escape)
-    'touchstart', 'scroll',                  // fallbacks
-    'pointermove', 'pointerdown'             // newer tvOS WebKit versions
+    'mousemove', 'mousedown', 'click',   // Siri Remote
+    'keydown',                            // Menu button (Escape)
+    'touchstart', 'scroll',              // fallbacks
+    'pointermove', 'pointerdown'         // newer tvOS WebKit
 ];
 ```
 
-**`inputmode="numeric"` does not work on tvOS.** The tvOS system keyboard is always the full QWERTY overlay, regardless of `inputmode`, `type="tel"`, or `type="number"`. There is no numeric-only keyboard on tvOS. Design your PIN entry screen to work with a full keyboard — do not rely on a numeric pad appearing.
+**`inputmode="numeric"` does not work on tvOS.** The tvOS system keyboard is always the full QWERTY overlay regardless of `inputmode`, `type="tel"`, or `type="number"`. Design PIN entry to work with a full keyboard.
 
-**App Suspension and Timers:** When the Apple TV screensaver activates or the app is backgrounded, the WKWebView's JavaScript runtime is paused. `setTimeout` and `setInterval` timers **do not fire** during suspension. When the app resumes, there is no automatic signal to JavaScript that time has passed. To handle this in a WKWebView context, use native app lifecycle hooks to inject a JavaScript call on resume:
+**App Suspension and Timers:** When the screensaver activates or the app is backgrounded, the WKWebView's JavaScript runtime is paused. `setTimeout` and `setInterval` timers do not fire during suspension, and JavaScript gets no automatic signal when the app resumes. Use native lifecycle hooks to inject a resume call into the web layer:
 
 ```swift
 // In your native app delegate / scene delegate:
@@ -564,30 +617,27 @@ NotificationCenter.default.addObserver(
     forName: UIApplication.didBecomeActiveNotification,
     object: nil, queue: .main
 ) { [weak self] _ in
-    // Inject a resume check into the web layer
     self?.webView.evaluateJavaScript("ProfilesPlugin.onAppResume();")
 }
 ```
 
-Then in your JavaScript:
-
 ```javascript
-// In profiles.js or your client code:
 ProfilesPlugin.onAppResume = function() {
-    // Re-check lockout state on resume since timers may have missed
     this.initLockoutTimer();
 };
 ```
 
-**`sessionStorage` on tvOS WKWebView:** Each `WKWebView` instance gets its own session. If the WKWebView is recreated (e.g., after a memory warning), `sessionStorage` is cleared. Use native storage (Keychain for tokens, `UserDefaults` for non-sensitive preferences) and communicate values to the WebView via `WKUserContentController` message handlers or JS injection on load.
+**`sessionStorage` on tvOS WKWebView:** Each `WKWebView` instance has its own session storage. If the WebView is recreated after a memory warning, `sessionStorage` is cleared. Use native storage (Keychain for tokens) and inject values into the WebView on load via `WKUserContentController` message handlers.
 
-**`AbortController` availability:** Available in tvOS 12.1+ (WebKit shipped with tvOS 12.1). All current tvOS versions (15+) support it fully.
+**`AbortController` availability:** Available in tvOS 12.1+ (WebKit shipped with tvOS 12.1). All current tvOS versions support it.
+
+---
 
 ### TV & Remote Control Clients (Tizen, webOS, Fire TV, Android TV)
 
-**Focusability:** All interactive elements — profile cards, action buttons, PIN inputs, color pickers, dropdowns — must be focusable via D-pad navigation. Add `tabindex="0"` to any non-native interactive element (e.g., `div`, `span`).
+**Focusability:** Every interactive element — profile cards, buttons, PIN inputs, dropdowns — must be reachable by D-pad. Add `tabindex="0"` to any non-native interactive element (`div`, `span`, etc.).
 
-**Auto-focus:** When the profile selector is displayed, programmatically focus the first profile card so the user can immediately navigate without pressing Tab.
+**Auto-focus:** When the profile selector opens, programmatically focus the first profile card:
 
 ```javascript
 setTimeout(() => {
@@ -596,7 +646,7 @@ setTimeout(() => {
 }, 50);
 ```
 
-**Enter/Select handling:** TV remote OK/Select buttons fire `keydown` events with `key === 'Enter'` or `key === ' '`. Register handlers on all focusable elements and trigger their click action:
+**Enter/Select handling:** TV remote OK/Select fires `keydown` with `key === 'Enter'` or `key === ' '`:
 
 ```javascript
 element.addEventListener('keydown', (e) => {
@@ -607,7 +657,7 @@ element.addEventListener('keydown', (e) => {
 });
 ```
 
-**Focus styling:** Remote controls do not trigger CSS `:hover`. Replicate hover animations on `:focus` and `:focus-within` to provide visible selection feedback:
+**Focus styling:** Remote controls don't trigger CSS `:hover`. Apply the same visual treatment to `:focus`:
 
 ```css
 .profile-card:focus {
@@ -617,13 +667,13 @@ element.addEventListener('keydown', (e) => {
 }
 ```
 
-**Inactivity events on TV:** Include `pointermove` and `pointerdown` in your inactivity event list. LG Magic Remote, Samsung Smart Remote in pointer mode, and similar devices generate pointer events rather than mouse events. Without these, the lockout timer will not reset when the user navigates with a pointing remote.
+**Inactivity events on TV:** Include `pointermove` and `pointerdown` in your event list. LG Magic Remote, Samsung Smart Remote in pointer mode, and similar devices generate pointer events rather than mouse events.
 
-**PIN entry on TV:** On most TV browsers, `type="password"` combined with `inputmode="numeric"` will suggest a numeric keyboard. However, on some older platforms a full character keyboard may appear regardless. Design your PIN entry screen to be usable with any keyboard layout.
+**PIN entry on TV:** On most TV browsers, `type="password"` combined with `inputmode="numeric"` will suggest a numeric keyboard, but some older platforms show a full character keyboard regardless. Design PIN entry to work with either.
 
-**`sessionStorage` on TV:** Some TV browsers clear `sessionStorage` when the app is backgrounded or when the user presses the Home button and returns. This will cause a fresh profile selection screen to appear on re-entry, which is the correct behavior for a shared TV.
+**`sessionStorage` on TV:** Some TV browsers clear `sessionStorage` when the user presses Home and returns. This causes a fresh profile selection on re-entry, which is the correct behavior for a shared TV.
 
-**`AbortController` support:** Available on Tizen 5+ (Samsung TVs, 2018+), webOS 5+ (LG TVs, 2020+), and Fire TV Gen 3+. For older devices, include a graceful fallback:
+**`AbortController` support:** Available on Tizen 5+ (Samsung TVs, 2018+), webOS 5+ (LG TVs, 2020+), Fire TV Gen 3+. Use the graceful fallback pattern:
 
 ```javascript
 verifyController = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -642,7 +692,7 @@ verifyController = typeof AbortController !== 'undefined' ? new AbortController(
 | 5.5–6.5 | 2020–2022 | ✅ | ✅ | ✅ |
 | 7.0+ | 2023+ | ✅ | ✅ | ✅ |
 
-On Tizen 2.4–4.x you must fall back to `XMLHttpRequest` for PIN verification. The `AbortController` fallback pattern already handles this gracefully by treating the absence of the constructor as "no cancellation available."
+On Tizen 2.4–4.x, fall back to `XMLHttpRequest` for PIN verification. The `AbortController` fallback pattern handles this gracefully.
 
 #### webOS (LG Smart TVs) — Version Matrix
 
@@ -653,73 +703,17 @@ On Tizen 2.4–4.x you must fall back to `XMLHttpRequest` for PIN verification. 
 | 5.x | 2020–2021 | ✅ | ✅ | `pointermove` + `mousemove` |
 | 6.x / 22–24 | 2022+ | ✅ | ✅ | `pointermove` + `mousemove` |
 
-On webOS 3.x–4.x, LG Magic Remote swipe generates `mousemove` (not `pointermove`). The plugin already includes `mousemove` in the inactivity event list, so this is handled. On webOS 4.x+, both event types fire simultaneously.
-
-#### Navigating the "Switch Profile" Button on Tizen and webOS
-
-The plugin injects a **Switch Profile** button directly into Jellyfin's existing header button row (the same row as the search and user account icons). On TV, users access it via the remote's D-pad.
-
-**How it appears:**
-- The button sits in `.headerRightButtons` next to the other header icons.
-- It is a native `<button>` element with `title="Switch Profile"` and a people icon.
-- A fallback floating button (text label "Profiles") is rendered if the header slot can't be found.
-
-**How a user reaches it (Tizen / webOS standard browser navigation):**
-
-1. From the home screen content grid, press **Up** on the D-pad to move focus into the header bar.
-2. Press **Left** or **Right** to navigate between header buttons until the Switch Profile button is focused. It will receive a visible `:focus` glow via the plugin's CSS.
-3. Press **OK / Enter / Select** to activate it. This clears the active profile session and reloads the page, showing the profile selector overlay.
-
-> [!NOTE]
-> Jellyfin's own React client intercepts some arrow-key events for horizontal scrolling of content rows. If focus gets "stuck" inside a content row and pressing Up doesn't reach the header, this is the Jellyfin web client's own focus management, not the plugin's. Custom TV clients can work around this by providing their own dedicated UI button that calls the switch-profile sequence directly (see [Returning to the Profile Selector](#returning-to-the-profile-selector)).
-
-**Keyboard/remote event handling on the button:**
-
-The plugin registers both a `click` handler and an explicit `keydown` handler (`Enter` / `Space`) on the bubble button. This covers:
-- Standard browser click (mouse / Magic Remote click)
-- Native button keyboard activation (most browsers)
-- Older Tizen / webOS versions that don't automatically fire `click` on `Enter` for injected elements
-
-```javascript
-// Plugin internal — shown for reference only
-bubble.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') activate(e);
-});
-```
-
-**When the button is intentionally hidden:**
-
-| Context | Button visible? | Reason |
-|---|---|---|
-| Home screen | ✅ Yes | Primary location for profile switching |
-| Library / browse pages | ✅ Yes | User may want to switch while browsing |
-| Item detail page | ✅ Yes | Browsing, not watching |
-| Active video/audio playback (`videoosd`, `nowplaying`) | ❌ No | Distracting during playback; player has its own UI |
-| Server dashboard / admin pages | ❌ No | Sub-profiles never have admin access; confusing to show |
-| Login / server-select / plugin config pages | ❌ No | No active session exists here |
-
-**Custom TV clients:** If your client provides its own dedicated remote-accessible "Switch Profile" button (in a side menu, settings panel, etc.), the action to perform when it's pressed is identical to clicking the bubble:
-
-```javascript
-function switchProfile() {
-    const masterState = JSON.parse(localStorage.getItem('jellyfin_profiles_master_state'));
-    if (!masterState) return;
-    sessionStorage.removeItem('jellyfin_profiles_active_token');
-    ApiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
-    window.location.reload(); // or navigate to your profile selector screen
-}
-```
+On webOS 3.x, the Magic Remote generates `mousemove` only. The plugin includes `mousemove` in its event list, so this is handled. On webOS 4.x+, both event types fire simultaneously.
 
 ---
 
 ### Roku
 
-Roku channels are written in **BrightScript** with SceneGraph UI components. There is no JavaScript runtime at all. Developers building a native Roku channel for Jellyfin must interact with this plugin exclusively via the REST API using Roku's native HTTP APIs.
+Roku channels are written in **BrightScript** with SceneGraph UI components. There is no JavaScript runtime. Developers building a native Roku channel must call the REST API directly using Roku's HTTP APIs.
 
-**HTTP Requests:** Use `roUrlTransfer` for all API calls. It is callback/event-based, not `async/await` or `Promise`-based.
+**HTTP Requests:** Use `roUrlTransfer`. It is callback/event-based, not Promise-based.
 
 ```brightscript
-' POST to verify-pin
 request = CreateObject("roUrlTransfer")
 request.SetUrl("https://<server>/plugins/profiles/verify-pin")
 request.AddHeader("Authorization", "MediaBrowser Token=""" + masterToken + """")
@@ -727,9 +721,9 @@ request.AddHeader("Content-Type", "application/json")
 request.AsyncPostFromString('{"profileId":"' + profileId + '","pin":"' + pin + '"}')
 ```
 
-**Silent PIN Verification:** The Roku message loop can call `verify-pin` after each digit by waiting on `roMessagePort` for the `roUrlEvent` completion and checking the response code. Because BrightScript is single-threaded, use `Task` nodes for background HTTP to avoid blocking the UI thread.
+**Silent PIN Verification:** Call `verify-pin` after each digit by waiting on `roMessagePort` for the `roUrlEvent` and checking the response code. Use `Task` nodes for background HTTP to avoid blocking the UI thread.
 
-**Token Storage:** Use `roRegistry` for persistent storage (survives channel restarts) and in-memory variables (the `m` scope of a SceneGraph node) for active session state:
+**Token Storage:** Use `roRegistry` for persistent storage and in-memory variables for active session state:
 
 ```brightscript
 ' Store master token (persists across launches)
@@ -738,11 +732,11 @@ section = reg.GetSection("JellyfinProfiles")
 section.Write("masterToken", masterToken)
 section.Flush()
 
-' Active profile token (in-memory only — cleared when channel exits)
+' Active profile token (in-memory — cleared when channel exits)
 m.activeProfileToken = activeProfileToken
 ```
 
-**Lockout Timer:** Use `roSGTimer` (a SceneGraph timer component) set to `lockoutMinutes * 60` seconds. Reset it on `roUniversalControlEvent` (remote button press) to track inactivity:
+**Lockout Timer:** Use `roSGTimer`. Reset it on `roUniversalControlEvent` (remote button press):
 
 ```brightscript
 m.lockoutTimer = CreateObject("roSGNode", "Timer")
@@ -752,22 +746,22 @@ m.lockoutTimer.ObserveField("fire", "onLockoutFired")
 m.lockoutTimer.control = "start"
 ```
 
-**PIN Entry:** Build a custom digit-entry grid using `ZoomRowList` or `MarkupGrid` with 10 number buttons (0–9) plus a delete button. The Siri remote's OK button on the selected digit calls your input handler. There is no system PIN keyboard on Roku.
+**PIN Entry:** Build a custom digit-entry grid using `ZoomRowList` or `MarkupGrid` with 10 number buttons (0–9) plus a delete button. There is no system PIN keyboard on Roku.
 
-**D-pad Navigation:** Roku remote D-pad fires `roUniversalControlEvent` with integer key codes (0=back, 2=up, 3=down, 4=left, 5=right, 6=OK). Route focus manually between profile cards using these events or use SceneGraph's built-in focus chain.
+**D-pad Navigation:** Roku D-pad fires `roUniversalControlEvent` with integer key codes (0=back, 2=up, 3=down, 4=left, 5=right, 6=OK). Route focus between profile cards using these events or SceneGraph's built-in focus chain.
 
 > [!NOTE]
-> Roku does not support `sessionStorage`, `localStorage`, `fetch()`, `AbortController`, or any web standard. Everything in the JavaScript sections of this guide is irrelevant for native BrightScript channels. Only the REST API contract applies.
+> Roku has no `sessionStorage`, `localStorage`, `fetch()`, `AbortController`, or any web standard. Only the REST API contract applies to native BrightScript channels.
 
 ---
 
 ### Xbox (Microsoft)
 
-Jellyfin on Xbox is accessible both through the **Edge browser** (standard web client) and via native **UWP apps** built with WinUI or React Native for Windows.
+Jellyfin on Xbox is available through the **Edge browser** and through native **UWP apps**.
 
 #### Xbox Edge Browser
 
-The Chromium-based Edge on Xbox is largely a full desktop browser. All web standard APIs (`fetch`, `AbortController`, `localStorage`, `sessionStorage`) work normally. The controller mapping for web content:
+Chromium-based Edge on Xbox supports all web standard APIs normally. Controller mapping for web content:
 
 | Xbox button | Web event | `key` value |
 |---|---|---|
@@ -776,13 +770,11 @@ The Chromium-based Edge on Xbox is largely a full desktop browser. All web stand
 | D-pad | `keydown` | `'ArrowUp'` / `'ArrowDown'` / `'ArrowLeft'` / `'ArrowRight'` |
 | Left stick | `keydown` (arrows) | Same as D-pad |
 
-No pointer events are generated from the controller. Mouse events require a physical USB/Bluetooth mouse connected to the Xbox. Ensure all interactive elements have `:focus` styles — the controller navigates via Tab/Arrow focus, not hover.
-
-The browser tab remains active even when the Xbox guide menu is opened. `setTimeout` timers keep firing. Inactivity tracking is accurate.
+The controller does not generate pointer events. Ensure all interactive elements have `:focus` styles. The browser tab stays active when the Xbox guide menu opens, so inactivity timers continue running normally.
 
 #### UWP / Native Xbox Apps
 
-Use `Windows.Storage.ApplicationData.Current.LocalSettings` (equivalent to `localStorage`) for persistent data, and in-memory variables for active session state. For security-sensitive tokens, use the `Windows.Security.Credentials.PasswordVault`:
+Use `Windows.Storage.ApplicationData.Current.LocalSettings` for persistent data. For tokens, use `Windows.Security.Credentials.PasswordVault`:
 
 ```csharp
 var vault = new PasswordVault();
@@ -795,19 +787,19 @@ Subscribe to `CoreApplication.Suspending` to record the last-active timestamp an
 
 ### PlayStation (PS4 / PS5)
 
-**PS5:** The PS5 browser is a modern WebKit. `fetch()` and `AbortController` are supported. Standard web client behavior applies. D-pad navigation generates `keydown` with standard arrow keys; Cross (✕) = `'Enter'`; Circle (○) = `'Escape'` (region-dependent).
+**PS5:** The PS5 browser is a modern WebKit. `fetch()` and `AbortController` are supported. Standard web client behavior applies. D-pad generates `keydown` with standard arrow keys; Cross (✕) = `'Enter'`; Circle (○) = `'Escape'` (region-dependent).
 
-**PS4:** The PS4 browser uses a significantly older WebKit engine (circa 2012–2015 depending on firmware) with major limitations:
+**PS4:** The PS4 browser uses a significantly older WebKit engine with notable limitations:
 
-| Feature | PS4 browser | PS5 browser |
+| Feature | PS4 | PS5 |
 |---|---|---|
-| `fetch()` | ❌ Must use XHR | ✅ |
+| `fetch()` | ❌ Use XHR | ✅ |
 | `AbortController` | ❌ | ✅ |
 | `localStorage` | ✅ | ✅ |
 | `sessionStorage` | ✅ (may be volatile) | ✅ |
 | `Promise` | ❌ (older firmware) / ✅ (newer) | ✅ |
 
-On PS4 you must implement PIN verification using `XMLHttpRequest`. The silent-verify abort pattern is not possible; cancel previous requests by tracking the XHR object and calling `.abort()` on it manually:
+On PS4, use `XMLHttpRequest` for PIN verification. Cancel previous requests by calling `.abort()` on the XHR object:
 
 ```javascript
 let activeXhr = null;
@@ -829,42 +821,38 @@ pinInput.addEventListener('input', function() {
 ```
 
 > [!CAUTION]
-> Do not attempt to build a production Jellyfin plugin experience for PS4 unless you are prepared to test on actual PS4 hardware. The browser is inconsistent across firmware versions and has a very small memory budget that causes crashes on DOM-heavy pages.
+> Do not target PS4 without testing on actual PS4 hardware. Browser behavior varies across firmware versions and available memory is limited enough to cause crashes on DOM-heavy pages.
 
 ---
 
 ### Desktop Apps (Electron / Jellyfin Media Player)
 
-Jellyfin Media Player and similar Electron-based clients embed a Chromium renderer. All standard web APIs work fully. The key behavioral difference from mobile is **timer handling during window minimization**:
+Jellyfin Media Player and similar Electron-based clients embed Chromium. All standard web APIs work. The main difference from mobile is timer behavior when the window is minimized:
 
-- On mobile/tvOS, the app is **suspended** when backgrounded — JS timers stop.
-- On desktop Electron, **minimizing or hiding the window does NOT suspend JavaScript**. Timers keep firing normally.
+- On mobile and tvOS, backgrounding **suspends** JavaScript — timers stop.
+- In Electron, minimizing the window **does not suspend** JavaScript — timers keep running.
 
-This means the inactivity lockout timer will correctly trigger even if the user minimizes the app, which may or may not be the desired behavior. If you want to suppress lockout while the window is not visible, listen for the Electron-injected `visibilitychange` event:
+This means the inactivity lockout timer fires correctly even if the user minimizes the app. If you want to suppress lockout while the window is hidden:
 
 ```javascript
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-        // Window is minimized/hidden — pause the inactivity timer
         clearTimeout(lockTimer);
     } else {
-        // Window is back in focus — restart the timer
         startInactivityTimer(lockoutMinutes);
     }
 });
 ```
 
-There is no `contextIsolation` or `nodeIntegration` concern for this plugin since it runs purely in the renderer's web context and uses only standard web APIs.
+This plugin uses only standard web APIs with no `contextIsolation` or `nodeIntegration` requirements.
 
 ---
 
 ### Android Native Apps
 
-The official Jellyfin Android app is a native Kotlin/Java app. Like tvOS, it calls the REST API directly via `OkHttp` or `Retrofit`, not through the web plugin UI.
+The official Jellyfin Android app is a native Kotlin/Java app that calls the REST API directly via `OkHttp` or `Retrofit`.
 
-**HTTP Requests:** Use `OkHttp` or `Retrofit`. The plugin's REST API accepts standard HTTP — no Android-specific changes needed.
-
-**Token Storage:** Use `EncryptedSharedPreferences` (backed by Android Keystore) for tokens — never plain `SharedPreferences`. On Android 6+, hardware-backed key storage is available.
+**Token Storage:** Use `EncryptedSharedPreferences` (backed by Android Keystore) for tokens — never plain `SharedPreferences`. Hardware-backed key storage is available on Android 6+.
 
 ```kotlin
 val masterPrefs = EncryptedSharedPreferences.create(
@@ -877,16 +865,14 @@ val masterPrefs = EncryptedSharedPreferences.create(
 masterPrefs.edit().putString("masterToken", token).apply()
 ```
 
-**Lockout Timer:** Use a `CountDownTimer` or coroutine `delay()`. Subscribe to `ProcessLifecycleOwner` to detect app backgrounding:
+**Lockout Timer:** Use a `CountDownTimer` or coroutine `delay()`. Subscribe to `ProcessLifecycleOwner` for app backgrounding:
 
 ```kotlin
 ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
     override fun onStop(owner: LifecycleOwner) {
-        // App going to background — record timestamp
         prefs.edit().putLong("lastActiveMs", System.currentTimeMillis()).apply()
     }
     override fun onStart(owner: LifecycleOwner) {
-        // App returning — check elapsed time
         val elapsed = System.currentTimeMillis() - prefs.getLong("lastActiveMs", 0)
         if (elapsed > lockoutMinutes * 60_000L && lockoutMinutes > 0) {
             showProfileSelector()
@@ -895,21 +881,21 @@ ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObser
 })
 ```
 
-**Samsung Internet Browser on Android:** Samsung's browser has occasional issues where `sessionStorage` survives tab swaps in a way that standard Chrome does not. The practical result is that a user might return to a Jellyfin tab after hours away and still have an active profile session — bypassing the lockout. If supporting Samsung Internet specifically, validate the session freshness against a stored timestamp on every page focus event.
+**Samsung Internet Browser on Android:** Samsung's browser can retain `sessionStorage` across tab switches in ways that Chrome does not. A user returning to a Jellyfin tab after hours away might still have an active profile session. If supporting Samsung Internet, validate session freshness against a stored timestamp on every page focus event.
 
 ---
 
 ## Cross-Platform API Support Matrix
 
-| Feature | Web (Chrome/Firefox) | Safari (macOS/iOS) | Electron | Android native | tvOS native | tvOS WKWebView | Tizen 3-4 | Tizen 5+ | webOS 3-4 | webOS 5+ | Roku | Xbox Edge | PS4 | PS5 |
+| Feature | Web (Chrome/Firefox) | Safari (macOS/iOS) | Electron | Android native | tvOS native | tvOS WKWebView | Tizen 3–4 | Tizen 5+ | webOS 3–4 | webOS 5+ | Roku | Xbox Edge | PS4 | PS5 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `fetch()` | ✅ | ✅ | ✅ | Via OkHttp | Via URLSession | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ XHR only | ✅ | ❌ XHR only | ✅ |
 | `AbortController` | ✅ | ✅ 12.1+ | ✅ | N/A | N/A | ✅ | ❌ | ✅ | ❌ | ✅ | N/A | ✅ | ❌ | ✅ |
 | `localStorage` | ✅ | ✅ ⚠️ ITP | ✅ | Native storage | Native Keychain | Volatile | ✅ | ✅ | ✅ | ✅ | `roRegistry` | ✅ | ✅ | ✅ |
 | `sessionStorage` | ✅ | ✅ | ✅ | N/A | Volatile | Volatile | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ⚠️ | ✅ |
 | Pointer events | ✅ | ✅ | ✅ | Touch only | N/A | Siri → `mousemove` | ❌ | ✅ remote | ✅ Magic Remote | ✅ | N/A | ❌ | ❌ | ❌ |
-| Timer during suspend | Keeps running | Paused | Keeps running | Paused (use lifecycle) | Paused (use lifecycle) | Paused | Keeps running | Keeps running | Keeps running | Keeps running | `roSGTimer` | Keeps running | Keeps running | Keeps running |
-| Secure token storage | `localStorage` (best available) | `localStorage` ⚠️ | `localStorage` | `EncryptedSharedPreferences` | Keychain | Keychain + inject | `localStorage` | `localStorage` | `localStorage` | `localStorage` | `roRegistry` | `PasswordVault` | `localStorage` | `localStorage` |
+| Timers during suspend | Running | Paused | Running | Paused (lifecycle) | Paused (lifecycle) | Paused | Running | Running | Running | Running | `roSGTimer` | Running | Running | Running |
+| Secure token storage | `localStorage` | `localStorage` ⚠️ | `localStorage` | `EncryptedSharedPreferences` | Keychain | Keychain + inject | `localStorage` | `localStorage` | `localStorage` | `localStorage` | `roRegistry` | `PasswordVault` | `localStorage` | `localStorage` |
 
 > [!TIP]
-> For any platform where timers pause during suspension, **always use the timestamp comparison pattern** on resume rather than relying on a timer to have fired at the correct moment. This is the only approach that works correctly across all native platforms.
+> On any platform where timers pause during suspension, use the timestamp comparison pattern on resume rather than relying on a timer to have fired at the correct time. This applies to tvOS native, Android native, and any WKWebView context.
