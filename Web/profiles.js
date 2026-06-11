@@ -516,7 +516,7 @@
                 <h1 class="profiles-title">Enter Profile PIN</h1>
                 <div class="pin-entry-container">
                     <input type="password" id="profile-pin-input" maxlength="8" pattern="[0-9]*" inputmode="numeric" placeholder="••••" autofocus />
-                    <div id="pin-error-msg" class="pin-error-text" style="display: none;"></div>
+                    <div id="pin-error-msg" style="display:none; color:#ff6b6b; font-size:0.9rem; font-weight:600; text-align:center; margin-top:-0.5rem;"></div>
                     <div class="pin-actions">
                         <button id="pin-submit-btn" class="profiles-btn btn-primary">Unlock</button>
                         <button id="pin-cancel-btn" class="profiles-btn btn-secondary">Back</button>
@@ -528,36 +528,50 @@
             const errorMsg = document.getElementById('pin-error-msg');
             pinInput.focus();
 
+            let autoSubmitTimer = null;
+
             const showPinError = (msg) => {
-                // Set inline styles directly so Jellyfin's own stylesheet cannot override them
+                clearTimeout(autoSubmitTimer);
+                // Inline styles guarantee visibility regardless of Jellyfin stylesheet specificity
                 pinInput.style.borderColor = '#ff6b6b';
-                pinInput.style.boxShadow = '0 0 15px rgba(255, 107, 107, 0.4)';
-                pinInput.classList.add('pin-input-error');
+                pinInput.style.boxShadow = '0 0 15px rgba(255,107,107,0.5)';
                 errorMsg.textContent = msg || 'Incorrect PIN. Please try again.';
                 errorMsg.style.display = 'block';
                 pinInput.value = '';
-                pinInput.focus();
+                // Use setTimeout so the refocus doesn't trigger the 'input' clearError listener
+                setTimeout(() => pinInput.focus(), 0);
             };
 
             const clearError = () => {
-                pinInput.classList.remove('pin-input-error');
                 pinInput.style.borderColor = '';
                 pinInput.style.boxShadow = '';
                 errorMsg.style.display = 'none';
                 errorMsg.textContent = '';
             };
 
-            pinInput.addEventListener('input', clearError);
-            pinInput.addEventListener('focus', clearError);
+            // Only clear error when the user actually types — NOT on focus,
+            // because showPinError refocuses the input which would immediately wipe the error
+            pinInput.addEventListener('input', () => {
+                clearError();
+                clearTimeout(autoSubmitTimer);
+                // Auto-submit after 600ms pause once 4+ digits are entered
+                if (pinInput.value.length >= 4) {
+                    autoSubmitTimer = setTimeout(() => {
+                        this.executeProfileSwitch(profileId, pinInput.value, showPinError);
+                    }, 600);
+                }
+            });
 
             const submitPin = () => {
+                clearTimeout(autoSubmitTimer);
                 const pin = pinInput.value;
+                if (!pin) return;
                 this.executeProfileSwitch(profileId, pin, showPinError);
             };
 
             document.getElementById('pin-submit-btn').addEventListener('click', submitPin);
             pinInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') submitPin();
+                if (e.key === 'Enter') { clearTimeout(autoSubmitTimer); submitPin(); }
             });
 
             document.getElementById('pin-cancel-btn').addEventListener('click', () => {
@@ -575,7 +589,7 @@
                 <h1 class="profiles-title">Enter Master PIN</h1>
                 <div class="pin-entry-container">
                     <input type="password" id="master-pin-input" maxlength="8" pattern="[0-9]*" inputmode="numeric" placeholder="••••" autofocus />
-                    <div id="master-pin-error-msg" class="pin-error-text" style="display: none;"></div>
+                    <div id="master-pin-error-msg" style="display:none; color:#ff6b6b; font-size:0.9rem; font-weight:600; text-align:center; margin-top:-0.5rem;"></div>
                     <div class="pin-actions">
                         <button id="master-pin-submit-btn" class="profiles-btn btn-primary">Submit</button>
                         <button id="master-pin-cancel-btn" class="profiles-btn btn-secondary">Cancel</button>
@@ -587,17 +601,39 @@
             const errorMsg = document.getElementById('master-pin-error-msg');
             pinInput.focus();
 
-            const clearError = () => {
-                pinInput.classList.remove('pin-input-error');
-                errorMsg.style.display = 'none';
-                errorMsg.innerText = '';
+            let autoSubmitTimer = null;
+
+            const showPinError = (msg) => {
+                clearTimeout(autoSubmitTimer);
+                pinInput.style.borderColor = '#ff6b6b';
+                pinInput.style.boxShadow = '0 0 15px rgba(255,107,107,0.5)';
+                errorMsg.textContent = msg || 'Incorrect PIN. Please try again.';
+                errorMsg.style.display = 'block';
+                pinInput.value = '';
+                // Use setTimeout so refocus doesn't trigger the 'input' clearError listener
+                setTimeout(() => pinInput.focus(), 0);
             };
 
-            pinInput.addEventListener('input', clearError);
-            pinInput.addEventListener('focus', clearError);
+            const clearError = () => {
+                pinInput.style.borderColor = '';
+                pinInput.style.boxShadow = '';
+                errorMsg.style.display = 'none';
+                errorMsg.textContent = '';
+            };
+
+            // Only clear on typing — NOT on focus (showPinError refocuses which would wipe the error)
+            pinInput.addEventListener('input', () => {
+                clearError();
+                clearTimeout(autoSubmitTimer);
+                if (pinInput.value.length >= 4) {
+                    autoSubmitTimer = setTimeout(() => submitPin(), 600);
+                }
+            });
 
             const submitPin = () => {
+                clearTimeout(autoSubmitTimer);
                 const pin = pinInput.value;
+                if (!pin) return;
                 const apiClient = ApiClient;
                 const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
                 if (!masterState) return;
@@ -612,25 +648,18 @@
                     body: JSON.stringify({ profileId: masterProfile.profileUserId, pin: pin })
                 })
                 .then(res => {
-                    if (!res.ok) throw new Error("Invalid PIN");
+                    if (!res.ok) throw new Error('Invalid PIN');
                     this.masterPin = pin;
                     callback();
                 })
-                .catch(err => {
-                    // Inline styles ensure visibility regardless of Jellyfin stylesheet specificity
-                    pinInput.style.borderColor = '#ff6b6b';
-                    pinInput.style.boxShadow = '0 0 15px rgba(255, 107, 107, 0.4)';
-                    pinInput.classList.add('pin-input-error');
-                    errorMsg.textContent = 'Incorrect Master PIN. Please try again.';
-                    errorMsg.style.display = 'block';
-                    pinInput.value = '';
-                    pinInput.focus();
+                .catch(() => {
+                    showPinError('Incorrect Master PIN. Please try again.');
                 });
             };
 
             document.getElementById('master-pin-submit-btn').addEventListener('click', submitPin);
             pinInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') submitPin();
+                if (e.key === 'Enter') { clearTimeout(autoSubmitTimer); submitPin(); }
             });
 
             document.getElementById('master-pin-cancel-btn').addEventListener('click', () => {
