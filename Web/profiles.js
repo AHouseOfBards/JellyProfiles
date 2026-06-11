@@ -528,10 +528,23 @@
             const errorMsg = document.getElementById('pin-error-msg');
             pinInput.focus();
 
+            const showPinError = (msg) => {
+                // Set inline styles directly so Jellyfin's own stylesheet cannot override them
+                pinInput.style.borderColor = '#ff6b6b';
+                pinInput.style.boxShadow = '0 0 15px rgba(255, 107, 107, 0.4)';
+                pinInput.classList.add('pin-input-error');
+                errorMsg.textContent = msg || 'Incorrect PIN. Please try again.';
+                errorMsg.style.display = 'block';
+                pinInput.value = '';
+                pinInput.focus();
+            };
+
             const clearError = () => {
                 pinInput.classList.remove('pin-input-error');
+                pinInput.style.borderColor = '';
+                pinInput.style.boxShadow = '';
                 errorMsg.style.display = 'none';
-                errorMsg.innerText = '';
+                errorMsg.textContent = '';
             };
 
             pinInput.addEventListener('input', clearError);
@@ -539,7 +552,7 @@
 
             const submitPin = () => {
                 const pin = pinInput.value;
-                this.executeProfileSwitch(profileId, pin);
+                this.executeProfileSwitch(profileId, pin, showPinError);
             };
 
             document.getElementById('pin-submit-btn').addEventListener('click', submitPin);
@@ -604,8 +617,11 @@
                     callback();
                 })
                 .catch(err => {
+                    // Inline styles ensure visibility regardless of Jellyfin stylesheet specificity
+                    pinInput.style.borderColor = '#ff6b6b';
+                    pinInput.style.boxShadow = '0 0 15px rgba(255, 107, 107, 0.4)';
                     pinInput.classList.add('pin-input-error');
-                    errorMsg.innerText = "Incorrect Master PIN. Access Denied.";
+                    errorMsg.textContent = 'Incorrect Master PIN. Please try again.';
                     errorMsg.style.display = 'block';
                     pinInput.value = '';
                     pinInput.focus();
@@ -622,7 +638,10 @@
             });
         },
 
-        executeProfileSwitch: function (profileId, pin) {
+        // onError: optional callback(message) invoked on a failed switch.
+        // Callers capture their own DOM references via closure so we never re-query
+        // the DOM inside an async callback (which can race against overlay teardown).
+        executeProfileSwitch: function (profileId, pin, onError) {
             const apiClient = ApiClient;
             const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
             if (!masterState) return;
@@ -638,36 +657,31 @@
                 body: JSON.stringify({ profileId: profileId, pin: pin })
             })
             .then(res => {
-                if (!res.ok) throw new Error("Invalid credentials");
+                if (!res.ok) throw new Error('Incorrect PIN');
                 return res.json();
             })
             .then(data => {
                 const activeProfileToken = data.activeProfileToken || data.ActiveProfileToken;
                 const jellyfinUserId = data.jellyfinUserId || data.JellyfinUserId;
-                
+
                 if (this.normalizeGuid(jellyfinUserId) === this.normalizeGuid(masterState.masterUserId)) {
                     masterState.masterToken = activeProfileToken;
                     localStorage.setItem(this.config.masterStorageKey, JSON.stringify(masterState));
                 }
-                
+
                 sessionStorage.setItem(this.config.activeSessionKey, activeProfileToken);
                 this.updateStoredCredentials(activeProfileToken, jellyfinUserId);
                 apiClient.setAuthenticationInfo(activeProfileToken, jellyfinUserId);
-                
+
                 this.removeProfileOverlay();
                 window.location.reload();
             })
             .catch(err => {
-                const pinInput = document.getElementById('profile-pin-input');
-                const errorMsg = document.getElementById('pin-error-msg');
-                if (pinInput && errorMsg) {
-                    pinInput.classList.add('pin-input-error');
-                    errorMsg.innerText = "Incorrect PIN. Access Denied.";
-                    errorMsg.style.display = 'block';
-                    pinInput.value = '';
-                    pinInput.focus();
+                if (typeof onError === 'function') {
+                    // Caller has closed-over references to the DOM — no re-query needed
+                    onError('Incorrect PIN. Please try again.');
                 } else {
-                    alert("Incorrect PIN. Access Denied.");
+                    // Fallback: no PIN screen is currently shown (e.g. direct card tap without PIN prompt)
                     this.isManageMode = false;
                     this.interceptHomeAndShowProfiles();
                 }
