@@ -12,7 +12,7 @@
         "changelog": "Add per-profile inactivity lockout timer (configurable: 1m / 5m / 10m / 20m / 30m / 1h / never). Silent PIN auto-submit on correct keystroke. Security fix: remove auth token from debug log. Cross-platform improvements: pointer events for Magic Remote, auto-focus on profile overlay.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.2/Jellyfin.Profiles.zip",
-        "checksum": "PLACEHOLDER_REPLACE_WITH_MD5_FROM_ACTIONS",
+        "checksum": "58f9d09b1d9f25417d9105620a14789c",
         "timestamp": "2026-06-11T19:00:00Z"
       },
       {

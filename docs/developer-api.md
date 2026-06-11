@@ -473,6 +473,116 @@ Removes the PIN from any profile without requiring knowledge of the existing PIN
 - Subscribe to app lifecycle events (`UIApplicationDidEnterBackgroundNotification` on iOS, `onPause` on Android). When the app backgrounds, consider treating it as inactivity for lockout timer purposes.
 - `AbortController` is available in all modern WebViews (iOS 12.1+, Android Chrome 66+).
 
+---
+
+### Apple tvOS
+
+tvOS has a fundamentally different integration story from all other platforms. The majority of Jellyfin tvOS clients (Swiftfin being the primary one) are **fully native UIKit/SwiftUI apps** — they talk directly to the REST API over `URLSession` or equivalent, never touching the web plugin UI at all.
+
+#### Native tvOS Apps (Swiftfin / Swift)
+
+The REST API contract is identical on tvOS — same endpoints, same request bodies, same responses. What differs is everything around the HTTP calls:
+
+**Token Storage:** Use **Keychain** (`SecItemAdd` / `SecItemCopyMatching`), not `UserDefaults`. Keychain entries survive app reinstalls if iCloud Keychain backup is enabled, are hardware-encrypted, and are properly sandboxed from other apps. `UserDefaults` is functionally equivalent to unencrypted plain text storage and is not appropriate for session tokens.
+
+```swift
+// Store master token in Keychain
+let query: [String: Any] = [
+    kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: "JellyfinProfilesMasterToken",
+    kSecValueData as String: masterToken.data(using: .utf8)!
+]
+SecItemAdd(query as CFDictionary, nil)
+```
+
+**Lockout Timer:** Use `Timer.scheduledTimer` or `DispatchQueue.asyncAfter` rather than JavaScript `setTimeout`. Subscribe to `UIApplicationWillResignActiveNotification` — this fires when the user presses the tvOS Home button, when the Apple TV auto-dims, or when the screensaver activates. On receipt, treat the app as inactive and show the profile selector on next foreground.
+
+```swift
+NotificationCenter.default.addObserver(
+    forName: UIApplication.willResignActiveNotification,
+    object: nil, queue: .main
+) { _ in
+    // Treat as inactivity — show profile selector on resume
+    ProfileSessionManager.shared.markNeedsReselection()
+}
+
+NotificationCenter.default.addObserver(
+    forName: UIApplication.didBecomeActiveNotification,
+    object: nil, queue: .main
+) { _ in
+    if ProfileSessionManager.shared.needsReselection {
+        showProfileSelector()
+    }
+}
+```
+
+> [!IMPORTANT]
+> **Do not rely on a timer firing during app suspension.** When Apple TV goes to sleep or the system suspends your app, all Swift `Timer` objects stop firing. The correct pattern is to record the timestamp when the app was last active (`Date()`), then on `didBecomeActive` compare the elapsed time against `lockoutMinutes`. If the elapsed time exceeds the threshold, force re-selection.
+
+```swift
+// On resign active:
+UserDefaults.standard.set(Date(), forKey: "lastActiveTimestamp")
+
+// On become active:
+if let last = UserDefaults.standard.object(forKey: "lastActiveTimestamp") as? Date {
+    let elapsed = Date().timeIntervalSince(last) / 60  // minutes
+    if elapsed >= Double(lockoutMinutes) && lockoutMinutes > 0 {
+        showProfileSelector()
+    }
+}
+```
+
+**Siri Remote Input:** The Siri Remote provides a clickpad surface (swipe + click). In native UIKit apps, navigation is handled by tvOS's **Focus Engine** (`UIFocusEnvironment`). Profile cards should conform to `UIFocusItem` and respond to `shouldUpdateFocus`. You don't handle raw D-pad keystrokes — the Focus Engine routes navigation automatically.
+
+**PIN Entry:** Use a custom numpad built with `UICollectionView` or similar — do **not** use a `UITextField` with `UIKeyboardType.numberPad` as the tvOS system keyboard is always a full QWERTY overlay and ignores the `keyboardType` hint. A 10-button numeric grid (0–9 + delete) driven by Siri Remote focus gives the correct UX for tvOS.
+
+---
+
+#### WKWebView-based tvOS Apps
+
+Some clients embed Jellyfin's web interface in a `WKWebView`. The web plugin UI runs inside this WebView. In this context:
+
+**Siri Remote Events in WKWebView:** The Siri Remote touchpad generates **`mousemove` events** when swiping (not `pointermove`, not `touchmove`). Click generates a `click` event. The Menu button generates `keydown` with `key === 'Escape'`. Include `mousemove` explicitly in your inactivity event list — it will be the primary activity signal from the Siri Remote.
+
+```javascript
+// For tvOS WKWebView, mousemove is the Siri Remote swipe signal
+const events = [
+    'mousemove', 'mousedown', 'click',      // Siri Remote
+    'keydown',                               // Menu button (Escape)
+    'touchstart', 'scroll',                  // fallbacks
+    'pointermove', 'pointerdown'             // newer tvOS WebKit versions
+];
+```
+
+**`inputmode="numeric"` does not work on tvOS.** The tvOS system keyboard is always the full QWERTY overlay, regardless of `inputmode`, `type="tel"`, or `type="number"`. There is no numeric-only keyboard on tvOS. Design your PIN entry screen to work with a full keyboard — do not rely on a numeric pad appearing.
+
+**App Suspension and Timers:** When the Apple TV screensaver activates or the app is backgrounded, the WKWebView's JavaScript runtime is paused. `setTimeout` and `setInterval` timers **do not fire** during suspension. When the app resumes, there is no automatic signal to JavaScript that time has passed. To handle this in a WKWebView context, use native app lifecycle hooks to inject a JavaScript call on resume:
+
+```swift
+// In your native app delegate / scene delegate:
+NotificationCenter.default.addObserver(
+    forName: UIApplication.didBecomeActiveNotification,
+    object: nil, queue: .main
+) { [weak self] _ in
+    // Inject a resume check into the web layer
+    self?.webView.evaluateJavaScript("ProfilesPlugin.onAppResume();")
+}
+```
+
+Then in your JavaScript:
+
+```javascript
+// In profiles.js or your client code:
+ProfilesPlugin.onAppResume = function() {
+    // Re-check lockout state on resume since timers may have missed
+    this.initLockoutTimer();
+};
+```
+
+**`sessionStorage` on tvOS WKWebView:** Each `WKWebView` instance gets its own session. If the WKWebView is recreated (e.g., after a memory warning), `sessionStorage` is cleared. Use native storage (Keychain for tokens, `UserDefaults` for non-sensitive preferences) and communicate values to the WebView via `WKUserContentController` message handlers or JS injection on load.
+
+**`AbortController` availability:** Available in tvOS 12.1+ (WebKit shipped with tvOS 12.1). All current tvOS versions (15+) support it fully.
+
 ### TV & Remote Control Clients (Tizen, webOS, Fire TV, Android TV)
 
 **Focusability:** All interactive elements — profile cards, action buttons, PIN inputs, color pickers, dropdowns — must be focusable via D-pad navigation. Add `tabindex="0"` to any non-native interactive element (e.g., `div`, `span`).
