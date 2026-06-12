@@ -12,7 +12,7 @@
         "changelog": "Fix: Fix client-side performance bottleneck and console ReferenceError (activeInfo is not defined) on 150ms intervals.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.32/Jellyfin.Profiles.zip",
-        "checksum": "",
+        "checksum": "48247c44f6c8d0478a624a1e3f13cb7c",
         "timestamp": "2026-06-12T15:20:00Z"
       },
       {
