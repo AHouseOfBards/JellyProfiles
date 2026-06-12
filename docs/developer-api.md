@@ -7,7 +7,7 @@
 
 ## Authentication
 
-All API requests require a standard Jellyfin authorization header. Authenticate initial requests with the master user's token. After a profile switch, use the returned active profile token for subsequent Jellyfin API calls.
+All API requests require a Jellyfin authorization header. Initial requests and profile management endpoints must be authenticated with the master user's token. After a profile switch, the returned active profile token must be used for subsequent API requests.
 
 ```http
 Authorization: MediaBrowser Client="<ClientName>", Device="<DeviceName>", DeviceId="<DeviceId>", Version="<Version>", Token="<token>"
@@ -15,43 +15,10 @@ Authorization: MediaBrowser Client="<ClientName>", Device="<DeviceName>", Device
 
 ---
 
-## Client Lifecycle Flow
+## Profiles API
 
-### 1. Initialization
-1. Authenticate with Jellyfin using the master credentials to get the master `Token` and `UserId`.
-2. Fetch the profiles using `GET /plugins/profiles/list`.
-3. If no active profile session exists, present a profile selection UI before loading home content.
-
-### 2. Profile Switch
-1. Call `POST /plugins/profiles/switch` with the chosen `profileId` (and `pin` if `requiresPin` is true).
-2. Save the returned `activeProfileToken` and `jellyfinUserId`. Replace the active Jellyfin client credentials with these values.
-3. If `lockoutMinutes` is greater than zero and `requiresPin` is true, start the inactivity tracking.
-
-### 3. Return to Selector
-1. Clear the active profile token and profile display info.
-2. Restore the original master credentials to the Jellyfin client.
-3. Refresh the profile list via `GET /plugins/profiles/list` and show the selector UI.
-
----
-
-## Storage Recommendations
-
-Keep the following values stored client-side:
-
-| Store | Scope | Keys | Lifetime |
-|---|---|---|---|
-| Persistent | Local | `jellyfin_profiles_master_state`: Master `userId` and `masterToken` | Cleared on explicit logout |
-| Session | Tab/App Run | `jellyfin_profiles_active_token`: Profile `activeProfileToken` and `jellyfinUserId` | Cleared on switch/lockout |
-| Session | Tab/App Run | `jellyfin_profiles_active_info`: Selected profile name, color, and initial | Cleared on switch/lockout |
-
----
-
-## Endpoint Reference
-
-### Profiles API
-
-#### `GET /plugins/profiles/list`
-Fetch all profiles (master and sub-profiles) accessible to the authenticated master session.
+### `GET /plugins/profiles/list`
+Retrieves a list of all profiles (master and sub-profiles) accessible to the authenticated master session.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
 * **Response `200 OK`:**
@@ -77,32 +44,38 @@ Fetch all profiles (master and sub-profiles) accessible to the authenticated mas
 
 | Field | Type | Description |
 |---|---|---|
-| `profileUserId` | string (GUID) | The Jellyfin user ID assigned to the profile. |
-| `profileName` | string | Profile display name. |
-| `avatarInitial` | string | Single character representing the profile. |
-| `avatarColor` | string | Hex color code for fallback avatar display. |
+| `profileUserId` | string (GUID) | Jellyfin user ID assigned to the profile. |
+| `profileName` | string | Display name of the profile. |
+| `avatarInitial` | string | Single character representing the profile avatar. |
+| `avatarColor` | string | Hex color code for the fallback avatar display. |
 | `requiresPin` | boolean | Indicates if a PIN entry is required to switch to this profile. |
-| `isMaster` | boolean | True if this is the main master user account. |
-| `lockoutMinutes` | integer | Auto-lock timeout in minutes. `0` means never. |
-| `maxSubProfiles` | integer | Maximum sub-profiles allowed (only present when `isMaster` is true). |
-| `enabledFolders` | string[] | Library GUIDs accessible to this sub-profile (only present when `isMaster` is false). |
-| `bypassPinOnLocalNetwork` | boolean | If true, PIN entry is bypassed when client is on LAN. |
-| `allowedDeviceIds` | string[] | Array of device IDs permitted to switch to this profile. Empty/null means all devices. |
-| `isBonfire` | boolean | True if the profile belongs to a linked Bonfire guest home. |
-| `profileImage` | string | Base64 data-URL or image URL representing the profile image. |
-| `masterUserId` | string (GUID) | The master user ID that this profile belongs to. |
+| `isMaster` | boolean | Indicates if this is the master user account. |
+| `lockoutMinutes` | integer | Inactivity timeout in minutes before auto-lock. `0` indicates disabled. |
+| `maxSubProfiles` | integer | Maximum sub-profiles allowed (present only when `isMaster` is true). |
+| `enabledFolders` | string[] (GUIDs) | Library GUIDs accessible to this sub-profile (present only when `isMaster` is false). |
+| `bypassPinOnLocalNetwork` | boolean | If true, PIN entry is bypassed when the client is on a local network (LAN). |
+| `allowedDeviceIds` | string[] | Device IDs permitted to access this profile. Empty or null indicates no device restrictions. |
+| `isBonfire` | boolean | Indicates if the profile belongs to a linked Bonfire guest home. |
+| `profileImage` | string | Base64 data-URL or image URL representing the profile picture. Null if none. |
+| `masterUserId` | string (GUID) | Jellyfin user ID of the master user account this profile belongs to. |
 
-#### `POST /plugins/profiles/switch`
-Switch session to a target profile.
+### `POST /plugins/profiles/switch`
+Authenticates a profile selection and returns a scoped session token.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "profileId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b",
   "pin": "1234"
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `profileId` | string (GUID) | Yes | The Jellyfin user ID of the target profile. |
+| `pin` | string | Conditional | Required if `requiresPin` is true for the target profile. |
+
 * **Response `200 OK`:**
 ```json
 {
@@ -111,24 +84,41 @@ Switch session to a target profile.
 }
 ```
 
-#### `POST /plugins/profiles/verify-pin`
-Validate a PIN without switching the active session. Used for input validation or silent PIN entry.
+| Field | Type | Description |
+|---|---|---|
+| `activeProfileToken` | string | Scoped Jellyfin session token for the target profile. |
+| `jellyfinUserId` | string (GUID) | Jellyfin user ID of the target profile. |
+
+* **Error Responses:**
+  * `401 Unauthorized`: Incorrect PIN or caller unauthorized.
+  * `404 Not Found`: Target profile does not exist.
+
+### `POST /plugins/profiles/verify-pin`
+Validates a profile PIN without switching the active session.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "profileId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b",
   "pin": "1234"
 }
 ```
-* **Response:** `200 OK` on match; `401 Unauthorized` on mismatch.
 
-#### `POST /plugins/profiles/create`
-Create a new sub-profile.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `profileId` | string (GUID) | Yes | The Jellyfin user ID of the profile. |
+| `pin` | string | Yes | The numeric PIN to validate. |
+
+* **Response:**
+  * `200 OK`: PIN is correct.
+  * `401 Unauthorized`: PIN is incorrect.
+
+### `POST /plugins/profiles/create`
+Creates a new sub-profile.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "profileName": "Kids",
@@ -143,6 +133,20 @@ Create a new sub-profile.
   "profileImage": null
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `profileName` | string | Yes | Display name for the new profile. |
+| `pin` | string | No | Numeric PIN for the profile (4-8 digits). Pass null or omit for no PIN. |
+| `avatarColor` | string | No | Hex color code for the fallback avatar. Defaults to `#1F77B4`. |
+| `maxParentalRating` | string | No | Maximum parental rating allowed (e.g., "6", "10", "14", "17"). Omit for no restriction. |
+| `enabledFolders` | string[] (GUIDs) | No | Array of library GUIDs accessible to this profile. Empty array denies all library access. |
+| `lockoutMinutes` | integer | No | Inactivity timeout in minutes before auto-lock. `0` to disable. Defaults to `5`. |
+| `masterPin` | string | Conditional | Required if the master account has a PIN set. |
+| `bypassPinOnLocalNetwork` | boolean | No | Bypasses PIN entry when the client is on a local network. Defaults to `false`. |
+| `allowedDeviceIds` | string[] | No | Specific device IDs permitted to switch to this profile. Empty or null for no restriction. |
+| `profileImage` | string | No | Base64-encoded JPEG data-URL or image URL representing the profile picture. |
+
 * **Response `200 OK`:**
 ```json
 {
@@ -151,11 +155,16 @@ Create a new sub-profile.
 }
 ```
 
-#### `POST /plugins/profiles/update`
-Update profile settings.
+| Field | Type | Description |
+|---|---|---|
+| `profileUserId` | string (GUID) | Jellyfin user ID assigned to the new profile. |
+| `profileName` | string | Display name of the new profile. |
+
+### `POST /plugins/profiles/update`
+Updates settings for an existing sub-profile.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "profileId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b",
@@ -171,25 +180,44 @@ Update profile settings.
   "profileImage": ""
 }
 ```
-*Note: Pass an empty string `""` to `pin` or `profileImage` to clear them. Pass `null` to leave them unchanged.*
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `profileId` | string (GUID) | Yes | Jellyfin user ID of the profile to update. |
+| `profileName` | string | Yes | New display name. |
+| `pin` | string | No | New numeric PIN. Pass `""` to clear the PIN. Pass `null` to leave unchanged. |
+| `avatarColor` | string | No | New hex color code. |
+| `maxParentalRating` | string | No | New maximum parental rating code. Pass `null` to leave unchanged. |
+| `enabledFolders` | string[] (GUIDs) | No | Updated library GUIDs. Pass `null` to leave unchanged. |
+| `lockoutMinutes` | integer | No | New inactivity timeout in minutes. Pass `null` to leave unchanged. |
+| `masterPin` | string | Conditional | Required if the master account has a PIN set. |
+| `bypassPinOnLocalNetwork` | boolean | No | Updated local network PIN bypass setting. Pass `null` to leave unchanged. |
+| `allowedDeviceIds` | string[] | No | Updated list of allowed device IDs. Pass `null` to leave unchanged. |
+| `profileImage` | string | No | Base64-encoded JPEG data-URL or image URL representing the profile picture. Pass `""` to clear the picture, or `null` to leave unchanged. |
 
 * **Response:** `200 OK` on success.
 
-#### `POST /plugins/profiles/delete`
-Permanently delete a sub-profile and its underlying Jellyfin account.
+### `POST /plugins/profiles/delete`
+Permanently deletes a sub-profile and its underlying Jellyfin account.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "profileId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b",
   "masterPin": "1234"
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `profileId` | string (GUID) | Yes | Jellyfin user ID of the profile to delete. |
+| `masterPin` | string | Conditional | Required if the master account has a PIN set. |
+
 * **Response:** `200 OK` on success.
 
-#### `GET /plugins/profiles/libraries`
-Get media library folders visible to the master user. Used for populating selectors.
+### `GET /plugins/profiles/libraries`
+Retrieves media library folders visible to the master user.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
 * **Response `200 OK`:**
@@ -203,12 +231,18 @@ Get media library folders visible to the master user. Used for populating select
 ]
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `id` | string (GUID) | Library folder GUID. |
+| `name` | string | Display name of the library. |
+| `collectionType` | string | Type of media collection (e.g., "movies", "tvshows"). |
+
 ---
 
-### Devices API
+## Devices API
 
-#### `GET /plugins/profiles/devices`
-Get all logged devices that have interacted with the plugin (server-wide).
+### `GET /plugins/profiles/devices`
+Retrieves all logged devices that have interacted with the plugin (server-wide).
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
 * **Response `200 OK`:**
@@ -223,24 +257,36 @@ Get all logged devices that have interacted with the plugin (server-wide).
 ]
 ```
 
-#### `POST /plugins/profiles/devices/delete`
-Delete a device from the known devices log. Clears it from allowed device filters.
+| Field | Type | Description |
+|---|---|---|
+| `deviceId` | string | Recorded device identifier. |
+| `deviceName` | string | Display name of the device. |
+| `client` | string | Client application name. |
+| `lastSeen` | string (ISO-8601) | Timestamp of the last interaction. |
+
+### `POST /plugins/profiles/devices/delete`
+Deletes a device from the known devices log.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "deviceId": "57bfa7e8d35f492b950bf93c9d747a11"
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `deviceId` | string | Yes | The device ID to remove. |
+
 * **Response:** `200 OK` on success.
 
 ---
 
-### Bonfire API
+## Bonfire API
 
-#### `GET /plugins/profiles/bonfire/status`
-Retrieve the bonfire group status and visibility settings for the caller.
+### `GET /plugins/profiles/bonfire/status`
+Retrieves the bonfire group status and visibility settings for the caller.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
 * **Response `200 OK`:**
@@ -262,21 +308,38 @@ Retrieve the bonfire group status and visibility settings for the caller.
 }
 ```
 
-#### `POST /plugins/profiles/bonfire/settings`
-Update the visibility preferences for sharing profiles in Bonfire crossover homes.
+| Field | Type | Description |
+|---|---|---|
+| `isOwner` | boolean | Indicates if the master user owns a Bonfire group. |
+| `ownedCode` | string | 6-character alphanumeric join code for the owned group. Null if none. |
+| `ownedMembers` | array | List of guest master users in the owned group. Each member has `userId` and `username`. |
+| `isMember` | boolean | Indicates if the master user has joined another user's Bonfire group. |
+| `joinedOwnerName` | string | Username of the owner of the joined group. Null if none. |
+| `joinedOwnerId` | string (GUID) | User ID of the owner of the joined group. Null if none. |
+| `hideMySubProfilesFromOthers` | boolean | If true, local sub-profiles are hidden from Bonfire group members. |
+| `hideOthersSubProfilesFromMe` | boolean | If true, remote sub-profiles are hidden locally. |
+
+### `POST /plugins/profiles/bonfire/settings`
+Updates the visibility preferences for sharing profiles in Bonfire crossover homes.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "hideMySubProfilesFromOthers": false,
   "hideOthersSubProfilesFromMe": false
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `hideMySubProfilesFromOthers` | boolean | Yes | Hide local sub-profiles from Bonfire group members. |
+| `hideOthersSubProfilesFromMe` | boolean | Yes | Hide remote sub-profiles locally. |
+
 * **Response:** `200 OK` on success.
 
-#### `POST /plugins/profiles/bonfire/generate`
-Generate a new 6-character alphanumeric bonfire join code.
+### `POST /plugins/profiles/bonfire/generate`
+Generates a new 6-character alphanumeric bonfire join code.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
 * **Response `200 OK`:**
@@ -288,16 +351,27 @@ Generate a new 6-character alphanumeric bonfire join code.
 }
 ```
 
-#### `POST /plugins/profiles/bonfire/join`
-Join a target group using its 6-character code. Rate limited to 3 failed attempts in 15 minutes.
+| Field | Type | Description |
+|---|---|---|
+| `groupId` | string | Identifier of the generated Bonfire group. |
+| `bonfireCode` | string | Alphanumeric code needed to join the group. |
+| `members` | array | List of group members. |
+
+### `POST /plugins/profiles/bonfire/join`
+Joins a target group using its 6-character code. Rate limited to 3 failed attempts in 15 minutes.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "code": "B7F8XA"
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `code` | string | Yes | 6-character alphanumeric Bonfire join code. |
+
 * **Response `200 OK`:**
 ```json
 {
@@ -306,36 +380,41 @@ Join a target group using its 6-character code. Rate limited to 3 failed attempt
 }
 ```
 
-#### `POST /plugins/profiles/bonfire/kick`
-Kick a guest master user from your bonfire group.
+### `POST /plugins/profiles/bonfire/kick`
+Kicks a guest master user from the owned bonfire group.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "memberId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b"
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `memberId` | string (GUID) | Yes | The user ID of the guest member to remove. |
+
 * **Response:** `200 OK` on success.
 
-#### `POST /plugins/profiles/bonfire/leave`
-Leave the bonfire group that you have joined.
+### `POST /plugins/profiles/bonfire/leave`
+Leaves the currently joined bonfire group.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
 * **Response:** `200 OK` on success.
 
-#### `POST /plugins/profiles/bonfire/delete-group`
-Dissolve the bonfire group you own. All member switchers are unlinked.
+### `POST /plugins/profiles/bonfire/delete-group`
+Dissolves the owned bonfire group. All member associations are removed.
 
 * **Headers:** `Authorization: MediaBrowser Token="<masterToken>"`
 * **Response:** `200 OK` on success.
 
 ---
 
-### Admin API
+## Admin API
 
-#### `GET /plugins/profiles/admin/mappings`
-Get all user profile mappings configured on the server.
+### `GET /plugins/profiles/admin/mappings`
+Retrieves all user profile mappings configured on the server.
 
 * **Headers:** `Authorization: MediaBrowser Token="<adminToken>"`
 * **Response `200 OK`:**
@@ -359,14 +438,24 @@ Get all user profile mappings configured on the server.
 }
 ```
 
-#### `POST /plugins/profiles/admin/reset-pin`
-Remove the PIN setting from a profile (recovery mechanism).
+| Field | Type | Description |
+|---|---|---|
+| `masterUsers` | array | List of master accounts. Each entry has `profileUserId`, `profileName`, and `requiresPin`. |
+| `subProfiles` | array | List of sub-profiles. Each entry has `profileUserId`, `profileName`, `masterName`, and `requiresPin`. |
+
+### `POST /plugins/profiles/admin/reset-pin`
+Removes the PIN requirement from the specified profile.
 
 * **Headers:** `Authorization: MediaBrowser Token="<adminToken>"`
-* **Request:**
+* **Request Body:**
 ```json
 {
   "profileId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b"
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `profileId` | string (GUID) | Yes | The user ID of the target profile. |
+
 * **Response:** `200 OK` on success.
