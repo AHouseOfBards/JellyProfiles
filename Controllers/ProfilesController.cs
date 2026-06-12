@@ -18,6 +18,8 @@ using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Session;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
+using MediaBrowser.Common.Net;
+using System.Net;
 
 namespace Jellyfin.Profiles.Controllers
 {
@@ -29,13 +31,15 @@ namespace Jellyfin.Profiles.Controllers
         private readonly IUserManager _userManager;
         private readonly ISessionManager _sessionManager;
         private readonly ILibraryManager _libraryManager;
+        private readonly INetworkManager _networkManager;
         private readonly ILogger<ProfilesController> _logger;
 
-        public ProfilesController(IUserManager userManager, ISessionManager sessionManager, ILibraryManager libraryManager, ILogger<ProfilesController> logger)
+        public ProfilesController(IUserManager userManager, ISessionManager sessionManager, ILibraryManager libraryManager, INetworkManager networkManager, ILogger<ProfilesController> logger)
         {
             _userManager = userManager;
             _sessionManager = sessionManager;
             _libraryManager = libraryManager;
+            _networkManager = networkManager;
             _logger = logger;
         }
 
@@ -63,39 +67,66 @@ namespace Jellyfin.Profiles.Controllers
             var masterUser = _userManager.GetUserById(masterUserId);
             if (masterUser == null) return NotFound("Master user not found.");
 
+            RecordDeviceActivity();
+
+            var remoteIp = HttpContext.Connection.RemoteIpAddress;
+            bool isLocal = remoteIp != null && _networkManager.IsInLocalNetwork(remoteIp);
+
+            var linkedMasterIds = GetLinkedMasterUserIds(masterUserId, config);
             var profileList = new List<object>();
 
-            // Find if there is a mapping/PIN for the master user, or default master user entry
-            var masterMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == masterUserId);
-            
-            profileList.Add(new
+            foreach (var linkedId in linkedMasterIds)
             {
-                ProfileUserId = masterUserId,
-                ProfileName = masterUser.Username,
-                AvatarInitial = string.IsNullOrEmpty(masterUser.Username) ? "M" : masterUser.Username.Substring(0, 1).ToUpper(),
-                AvatarColor = masterMapping?.AvatarColor ?? "#00A4DC",
-                RequiresPin = masterMapping != null && !string.IsNullOrEmpty(masterMapping.PinHash),
-                IsMaster = true,
-                LockoutMinutes = masterMapping?.LockoutMinutes ?? 5,
-                MaxSubProfiles = config.MaxProfilesPerUser
-            });
+                var linkedUser = _userManager.GetUserById(linkedId);
+                if (linkedUser == null) continue;
 
-            // Add all shadow profiles
-            var shadowProfiles = config.Mappings
-                .Where(m => m.MasterUserId == masterUserId && m.ProfileUserId != masterUserId)
-                .Select(m => new
+                var linkedMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == linkedId);
+                bool masterRequiresPin = linkedMapping != null && !string.IsNullOrEmpty(linkedMapping.PinHash);
+                if (isLocal && linkedMapping != null && linkedMapping.BypassPinOnLocalNetwork)
                 {
-                    m.ProfileUserId,
-                    m.ProfileName,
-                    AvatarInitial = string.IsNullOrEmpty(m.ProfileName) ? "?" : m.ProfileName.Substring(0, 1).ToUpper(),
-                    m.AvatarColor,
-                    RequiresPin = !string.IsNullOrEmpty(m.PinHash),
-                    IsMaster = false,
-                    m.LockoutMinutes,
-                    EnabledFolders = m.EnabledFolders ?? new List<Guid>()
+                    masterRequiresPin = false;
+                }
+
+                profileList.Add(new
+                {
+                    ProfileUserId = linkedId,
+                    ProfileName = linkedUser.Username,
+                    AvatarInitial = string.IsNullOrEmpty(linkedUser.Username) ? "M" : linkedUser.Username.Substring(0, 1).ToUpper(),
+                    AvatarColor = linkedMapping?.AvatarColor ?? "#00A4DC",
+                    RequiresPin = masterRequiresPin,
+                    IsMaster = true,
+                    LockoutMinutes = linkedMapping?.LockoutMinutes ?? 5,
+                    MaxSubProfiles = config.MaxProfilesPerUser,
+                    BypassPinOnLocalNetwork = linkedMapping?.BypassPinOnLocalNetwork ?? false,
+                    AllowedDeviceIds = linkedMapping?.AllowedDeviceIds ?? new List<string>()
                 });
 
-            profileList.AddRange(shadowProfiles);
+                // Add all shadow profiles for this master
+                var shadowProfiles = config.Mappings
+                    .Where(m => m.MasterUserId == linkedId && m.ProfileUserId != linkedId)
+                    .Select(m => {
+                        bool requiresPin = !string.IsNullOrEmpty(m.PinHash);
+                        if (isLocal && m.BypassPinOnLocalNetwork)
+                        {
+                            requiresPin = false;
+                        }
+                        return new
+                        {
+                            m.ProfileUserId,
+                            m.ProfileName,
+                            AvatarInitial = string.IsNullOrEmpty(m.ProfileName) ? "?" : m.ProfileName.Substring(0, 1).ToUpper(),
+                            m.AvatarColor,
+                            RequiresPin = requiresPin,
+                            IsMaster = false,
+                            m.LockoutMinutes,
+                            EnabledFolders = m.EnabledFolders ?? new List<Guid>(),
+                            BypassPinOnLocalNetwork = m.BypassPinOnLocalNetwork,
+                            AllowedDeviceIds = m.AllowedDeviceIds ?? new List<string>()
+                        };
+                    });
+
+                profileList.AddRange(shadowProfiles);
+            }
 
             return Ok(profileList);
         }
@@ -281,7 +312,9 @@ namespace Jellyfin.Profiles.Controllers
                 IsHidden = true,
                 LockoutMinutes = request.LockoutMinutes ?? 5,
                 // Store the selected libraries as the plugin's own ground truth
-                EnabledFolders = request.EnabledFolders?.ToList() ?? new List<Guid>()
+                EnabledFolders = request.EnabledFolders?.ToList() ?? new List<Guid>(),
+                BypassPinOnLocalNetwork = request.BypassPinOnLocalNetwork ?? false,
+                AllowedDeviceIds = request.AllowedDeviceIds ?? new List<string>()
             });
 
             Plugin.Instance?.SaveConfiguration();
@@ -376,28 +409,52 @@ namespace Jellyfin.Profiles.Controllers
 
             ProfileMapping? mapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
 
-            // Validate switch permissions: must belong to the same master user group.
+            RecordDeviceActivity();
+
+            var linkedMasterIds = GetLinkedMasterUserIds(callerMasterUserId, config);
+
+            // Validate switch permissions: must belong to the same master user group or a linked Bonfire group.
             if (request.ProfileId == callerMasterUserId)
             {
-                // Switch back to master profile
-                // Master user mapping entry might not exist, but that's fine.
+                // Switching to own master profile is allowed
+            }
+            else if (linkedMasterIds.Contains(request.ProfileId))
+            {
+                // Switching to a linked master profile is allowed
             }
             else
             {
-                if (mapping == null || mapping.MasterUserId != callerMasterUserId)
+                if (mapping == null || !linkedMasterIds.Contains(mapping.MasterUserId))
                 {
                     return Unauthorized("Unauthorized profile switch attempt.");
                 }
             }
 
+            // Enforce device restrictions for sub-profiles
+            if (mapping != null && mapping.ProfileUserId != mapping.MasterUserId && mapping.AllowedDeviceIds != null && mapping.AllowedDeviceIds.Count > 0)
+            {
+                var targetDeviceId = GetAuthorizationParameter("DeviceId");
+                if (string.IsNullOrEmpty(targetDeviceId) || !mapping.AllowedDeviceIds.Contains(targetDeviceId))
+                {
+                    return BadRequest("This profile is not allowed on this device.");
+                }
+            }
+
+            var remoteIp = HttpContext.Connection.RemoteIpAddress;
+            bool isLocal = remoteIp != null && _networkManager.IsInLocalNetwork(remoteIp);
+
             // Verify PIN if set
             var pinHashToCheck = mapping?.PinHash;
             if (!string.IsNullOrEmpty(pinHashToCheck))
             {
-                var inputHash = HashPin(request.Pin);
-                if (pinHashToCheck != inputHash)
+                bool bypass = mapping != null && mapping.BypassPinOnLocalNetwork && isLocal;
+                if (!bypass)
                 {
-                    return BadRequest("Invalid PIN code.");
+                    var inputHash = HashPin(request.Pin);
+                    if (pinHashToCheck != inputHash)
+                    {
+                        return BadRequest("Invalid PIN code.");
+                    }
                 }
             }
 
@@ -405,7 +462,8 @@ namespace Jellyfin.Profiles.Controllers
             if (targetUser == null) return NotFound("Underlying system user missing.");
 
             // Inherit/synchronize streaming policies and configurations from master user dynamically during switch
-            var masterUser = _userManager.GetUserById(callerMasterUserId);
+            var targetMasterUserId = mapping != null ? mapping.MasterUserId : request.ProfileId;
+            var masterUser = _userManager.GetUserById(targetMasterUserId);
             if (masterUser != null && targetUser.Id != callerMasterUserId)
             {
                 var masterUserDto = _userManager.GetUserDto(masterUser, string.Empty);
@@ -534,33 +592,56 @@ namespace Jellyfin.Profiles.Controllers
             var currentMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == currentUserId);
             Guid callerMasterUserId = currentMapping != null ? currentMapping.MasterUserId : currentUserId;
 
-            if (request.ProfileId == callerMasterUserId)
+            var linkedMasterIds = GetLinkedMasterUserIds(callerMasterUserId, config);
+
+            // Enforce device restrictions for sub-profiles
+            var mapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
+            if (mapping != null && mapping.ProfileUserId != mapping.MasterUserId && mapping.AllowedDeviceIds != null && mapping.AllowedDeviceIds.Count > 0)
+            {
+                var deviceId = GetAuthorizationParameter("DeviceId");
+                if (string.IsNullOrEmpty(deviceId) || !mapping.AllowedDeviceIds.Contains(deviceId))
+                {
+                    return BadRequest("This profile is not allowed on this device.");
+                }
+            }
+
+            var remoteIp = HttpContext.Connection.RemoteIpAddress;
+            bool isLocal = remoteIp != null && _networkManager.IsInLocalNetwork(remoteIp);
+
+            if (linkedMasterIds.Contains(request.ProfileId))
             {
                 // Verify master PIN
-                var masterMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == callerMasterUserId);
+                var masterMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
                 var pinHash = masterMapping?.PinHash;
                 if (!string.IsNullOrEmpty(pinHash))
                 {
-                    if (string.IsNullOrEmpty(request.Pin) || HashPin(request.Pin) != pinHash)
+                    bool bypass = masterMapping != null && masterMapping.BypassPinOnLocalNetwork && isLocal;
+                    if (!bypass)
                     {
-                        return BadRequest("Invalid PIN.");
+                        if (string.IsNullOrEmpty(request.Pin) || HashPin(request.Pin) != pinHash)
+                        {
+                            return BadRequest("Invalid PIN.");
+                        }
                     }
                 }
                 return Ok();
             }
             else
             {
-                var mapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
-                if (mapping == null || mapping.MasterUserId != callerMasterUserId)
+                if (mapping == null || !linkedMasterIds.Contains(mapping.MasterUserId))
                 {
                     return Unauthorized("Unauthorized profile PIN verification.");
                 }
                 var pinHash = mapping.PinHash;
                 if (!string.IsNullOrEmpty(pinHash))
                 {
-                    if (string.IsNullOrEmpty(request.Pin) || HashPin(request.Pin) != pinHash)
+                    bool bypass = mapping.BypassPinOnLocalNetwork && isLocal;
+                    if (!bypass)
                     {
-                        return BadRequest("Invalid PIN.");
+                        if (string.IsNullOrEmpty(request.Pin) || HashPin(request.Pin) != pinHash)
+                        {
+                            return BadRequest("Invalid PIN.");
+                        }
                     }
                 }
                 return Ok();
@@ -782,6 +863,16 @@ namespace Jellyfin.Profiles.Controllers
                 {
                     mappingEntry.EnabledFolders = request.EnabledFolders.ToList();
                 }
+
+                if (request.BypassPinOnLocalNetwork.HasValue)
+                {
+                    mappingEntry.BypassPinOnLocalNetwork = request.BypassPinOnLocalNetwork.Value;
+                }
+
+                if (request.AllowedDeviceIds != null)
+                {
+                    mappingEntry.AllowedDeviceIds = request.AllowedDeviceIds;
+                }
             }
 
             // Update policy for sub-profiles
@@ -969,6 +1060,433 @@ namespace Jellyfin.Profiles.Controllers
                     prop.SetValue(destination, val);
                 }
             }
+        }
+
+        // ── Device Log & Restrictions Endpoints ──────────────────────────────────
+
+        private void RecordDeviceActivity()
+        {
+            var deviceId = GetAuthorizationParameter("DeviceId");
+            var deviceName = GetAuthorizationParameter("Device");
+            var client = GetAuthorizationParameter("Client");
+
+            if (string.IsNullOrEmpty(deviceId)) return;
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return;
+
+            lock (config)
+            {
+                var existing = config.KnownDevices.FirstOrDefault(d => d.DeviceId == deviceId);
+                if (existing != null)
+                {
+                    existing.DeviceName = deviceName ?? existing.DeviceName;
+                    existing.Client = client ?? existing.Client;
+                    existing.LastSeen = DateTime.UtcNow;
+                }
+                else
+                {
+                    config.KnownDevices.Add(new KnownDevice
+                    {
+                        DeviceId = deviceId,
+                        DeviceName = deviceName ?? "Unknown Device",
+                        Client = client ?? "Unknown Client",
+                        LastSeen = DateTime.UtcNow
+                    });
+                }
+                Plugin.Instance?.SaveConfiguration();
+            }
+        }
+
+        [HttpGet("devices")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public ActionResult<IEnumerable<KnownDevice>> GetDevices()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return BadRequest("Plugin configuration missing.");
+
+            var currentUserIdVal = GetCurrentUserId();
+            if (currentUserIdVal == null) return Unauthorized();
+
+            var devices = config.KnownDevices.OrderByDescending(d => d.LastSeen).ToList();
+            return Ok(devices);
+        }
+
+        public class DeleteDeviceRequest
+        {
+            public string DeviceId { get; set; } = string.Empty;
+        }
+
+        [HttpPost("devices/delete")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public ActionResult DeleteDevice([FromBody] DeleteDeviceRequest request)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return BadRequest("Plugin configuration missing.");
+
+            var currentUserIdVal = GetCurrentUserId();
+            if (currentUserIdVal == null) return Unauthorized();
+            Guid masterId = currentUserIdVal.Value;
+
+            var currentMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == masterId);
+            if (currentMapping != null && currentMapping.MasterUserId != masterId)
+            {
+                return Unauthorized("Only the master profile can delete devices.");
+            }
+
+            if (string.IsNullOrEmpty(request.DeviceId))
+            {
+                return BadRequest("DeviceId is required.");
+            }
+
+            var device = config.KnownDevices.FirstOrDefault(d => d.DeviceId == request.DeviceId);
+            if (device != null)
+            {
+                config.KnownDevices.Remove(device);
+            }
+
+            // Remove it from any profile's allowed list
+            foreach (var mapping in config.Mappings)
+            {
+                if (mapping.AllowedDeviceIds != null && mapping.AllowedDeviceIds.Contains(request.DeviceId))
+                {
+                    mapping.AllowedDeviceIds.Remove(request.DeviceId);
+                }
+            }
+
+            Plugin.Instance?.SaveConfiguration();
+            return Ok();
+        }
+
+        // ── Bonfire Codes (Plex Home Style Grouping) ──────────────────────────────
+
+        private HashSet<Guid> GetLinkedMasterUserIds(Guid masterUserId, PluginConfiguration config)
+        {
+            var linkedMasterIds = new HashSet<Guid> { masterUserId };
+
+            var ownedGroups = config.BonfireGroups.Where(g => g.OwnerUserId == masterUserId);
+            foreach (var g in ownedGroups)
+            {
+                foreach (var memberId in g.MemberUserIds)
+                {
+                    linkedMasterIds.Add(memberId);
+                }
+            }
+
+            var memberGroups = config.BonfireGroups.Where(g => g.MemberUserIds.Contains(masterUserId));
+            foreach (var g in memberGroups)
+            {
+                linkedMasterIds.Add(g.OwnerUserId);
+                foreach (var memberId in g.MemberUserIds)
+                {
+                    linkedMasterIds.Add(memberId);
+                }
+            }
+
+            return linkedMasterIds;
+        }
+
+        private string GenerateSecureCode()
+        {
+            const string chars = "ABCDEFGHJKLMNOPQRSTUVWXYZ23456789";
+            var bytes = new byte[6];
+            using (var rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(bytes);
+            }
+            var result = new char[6];
+            for (int i = 0; i < 6; i++)
+            {
+                result[i] = chars[bytes[i] % chars.Length];
+            }
+            return new string(result);
+        }
+
+        private List<object> GetBonfireGroupMembers(BonfireGroup group, PluginConfiguration config)
+        {
+            var list = new List<object>();
+            foreach (var memberId in group.MemberUserIds)
+            {
+                var user = _userManager.GetUserById(memberId);
+                list.Add(new
+                {
+                    UserId = memberId,
+                    Username = user?.Username ?? "Unknown User"
+                });
+            }
+            return list;
+        }
+
+        [HttpGet("bonfire/status")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public ActionResult<object> GetBonfireStatus()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return BadRequest("Plugin configuration missing.");
+
+            var currentUserIdVal = GetCurrentUserId();
+            if (currentUserIdVal == null) return Unauthorized();
+            Guid masterUserId = currentUserIdVal.Value;
+
+            var currentMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == masterUserId);
+            Guid masterId = currentMapping != null ? currentMapping.MasterUserId : masterUserId;
+
+            var ownedGroup = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterId);
+            var joinedGroup = config.BonfireGroups.FirstOrDefault(g => g.MemberUserIds.Contains(masterId));
+
+            return Ok(new
+            {
+                IsOwner = ownedGroup != null,
+                OwnedCode = ownedGroup?.BonfireCode,
+                OwnedMembers = ownedGroup != null ? GetBonfireGroupMembers(ownedGroup, config) : null,
+                IsMember = joinedGroup != null,
+                JoinedOwnerName = joinedGroup != null ? (_userManager.GetUserById(joinedGroup.OwnerUserId)?.Username ?? "Unknown") : null,
+                JoinedOwnerId = joinedGroup?.OwnerUserId
+            });
+        }
+
+        [HttpPost("bonfire/generate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public ActionResult<object> GenerateBonfireCode()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return BadRequest("Plugin configuration missing.");
+
+            var currentUserIdVal = GetCurrentUserId();
+            if (currentUserIdVal == null) return Unauthorized();
+            Guid masterUserId = currentUserIdVal.Value;
+
+            var currentMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == masterUserId);
+            if (currentMapping != null && currentMapping.MasterUserId != masterUserId)
+            {
+                return Unauthorized("Only the master profile can manage Bonfire groups.");
+            }
+
+            var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterUserId);
+            if (group == null)
+            {
+                group = new BonfireGroup
+                {
+                    OwnerUserId = masterUserId,
+                    BonfireCode = GenerateSecureCode()
+                };
+                config.BonfireGroups.Add(group);
+            }
+            else if (string.IsNullOrEmpty(group.BonfireCode))
+            {
+                group.BonfireCode = GenerateSecureCode();
+            }
+
+            Plugin.Instance?.SaveConfiguration();
+
+            return Ok(new
+            {
+                GroupId = group.GroupId,
+                BonfireCode = group.BonfireCode,
+                Members = GetBonfireGroupMembers(group, config)
+            });
+        }
+
+        public class JoinBonfireRequest
+        {
+            public string Code { get; set; } = string.Empty;
+        }
+
+        [HttpPost("bonfire/join")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public ActionResult JoinBonfire([FromBody] JoinBonfireRequest request)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return BadRequest("Plugin configuration missing.");
+
+            var currentUserIdVal = GetCurrentUserId();
+            if (currentUserIdVal == null) return Unauthorized();
+            Guid masterUserId = currentUserIdVal.Value;
+
+            var currentMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == masterUserId);
+            Guid masterId = currentMapping != null ? currentMapping.MasterUserId : masterUserId;
+
+            if (currentMapping != null && currentMapping.MasterUserId != masterUserId)
+            {
+                return Unauthorized("Only the master profile can join Bonfire groups.");
+            }
+
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+            if (BonfireRateLimiter.IsRateLimited(ip))
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests, "Too many failed attempts. Please try again in 15 minutes.");
+            }
+
+            var code = request.Code?.Trim().ToUpperInvariant();
+            if (string.IsNullOrEmpty(code) || code.Length != 6)
+            {
+                BonfireRateLimiter.RecordFailure(ip);
+                return BadRequest("Invalid code format.");
+            }
+
+            var group = config.BonfireGroups.FirstOrDefault(g => g.BonfireCode == code);
+            if (group == null)
+            {
+                BonfireRateLimiter.RecordFailure(ip);
+                return BadRequest("Invalid Bonfire Code.");
+            }
+
+            if (group.OwnerUserId == masterId)
+            {
+                return BadRequest("You cannot join your own Bonfire group.");
+            }
+
+            if (group.MemberUserIds.Contains(masterId))
+            {
+                return Ok(new { Message = "Already a member of this group." });
+            }
+
+            // Remove user from any existing bonfire groups they joined
+            foreach (var g in config.BonfireGroups)
+            {
+                if (g.MemberUserIds.Contains(masterId))
+                {
+                    g.MemberUserIds.Remove(masterId);
+                }
+            }
+
+            group.MemberUserIds.Add(masterId);
+            Plugin.Instance?.SaveConfiguration();
+            
+            BonfireRateLimiter.Reset(ip);
+
+            return Ok(new
+            {
+                Message = "Successfully joined Bonfire group.",
+                OwnerName = _userManager.GetUserById(group.OwnerUserId)?.Username ?? "Unknown"
+            });
+        }
+
+        public class KickBonfireRequest
+        {
+            public Guid MemberId { get; set; }
+        }
+
+        [HttpPost("bonfire/kick")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public ActionResult KickBonfireMember([FromBody] KickBonfireRequest request)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return BadRequest("Plugin configuration missing.");
+
+            var currentUserIdVal = GetCurrentUserId();
+            if (currentUserIdVal == null) return Unauthorized();
+            Guid masterId = currentUserIdVal.Value;
+
+            var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterId);
+            if (group == null)
+            {
+                return BadRequest("You do not own a Bonfire group.");
+            }
+
+            if (group.MemberUserIds.Contains(request.MemberId))
+            {
+                group.MemberUserIds.Remove(request.MemberId);
+                Plugin.Instance?.SaveConfiguration();
+                return Ok();
+            }
+
+            return NotFound("Member not found in your Bonfire group.");
+        }
+
+        [HttpPost("bonfire/leave")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public ActionResult LeaveBonfire()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return BadRequest("Plugin configuration missing.");
+
+            var currentUserIdVal = GetCurrentUserId();
+            if (currentUserIdVal == null) return Unauthorized();
+            Guid masterId = currentUserIdVal.Value;
+
+            var joinedGroup = config.BonfireGroups.FirstOrDefault(g => g.MemberUserIds.Contains(masterId));
+            if (joinedGroup != null)
+            {
+                joinedGroup.MemberUserIds.Remove(masterId);
+                Plugin.Instance?.SaveConfiguration();
+                return Ok();
+            }
+
+            return BadRequest("You are not in any Bonfire group.");
+        }
+
+        [HttpPost("bonfire/delete-group")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public ActionResult DeleteBonfireGroup()
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return BadRequest("Plugin configuration missing.");
+
+            var currentUserIdVal = GetCurrentUserId();
+            if (currentUserIdVal == null) return Unauthorized();
+            Guid masterId = currentUserIdVal.Value;
+
+            var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterId);
+            if (group != null)
+            {
+                config.BonfireGroups.Remove(group);
+                Plugin.Instance?.SaveConfiguration();
+                return Ok();
+            }
+
+            return BadRequest("You do not own a Bonfire group.");
+        }
+    }
+
+    public static class BonfireRateLimiter
+    {
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<DateTime>> _failedAttempts = new();
+
+        public static bool IsRateLimited(string ipAddress)
+        {
+            if (string.IsNullOrEmpty(ipAddress)) return false;
+
+            if (_failedAttempts.TryGetValue(ipAddress, out var attempts))
+            {
+                lock (attempts)
+                {
+                    attempts.RemoveAll(t => t < DateTime.UtcNow.AddMinutes(-15));
+                    return attempts.Count >= 3;
+                }
+            }
+            return false;
+        }
+
+        public static void RecordFailure(string ipAddress)
+        {
+            if (string.IsNullOrEmpty(ipAddress)) return;
+
+            var attempts = _failedAttempts.GetOrAdd(ipAddress, _ => new List<DateTime>());
+            lock (attempts)
+            {
+                attempts.Add(DateTime.UtcNow);
+            }
+        }
+
+        public static void Reset(string ipAddress)
+        {
+            if (string.IsNullOrEmpty(ipAddress)) return;
+            _failedAttempts.TryRemove(ipAddress, out _);
         }
     }
 }

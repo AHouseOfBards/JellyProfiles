@@ -210,6 +210,9 @@
             // Skip when skipReveal is set — the overlay isn't in the DOM yet and
             // revealing now would show a blank page during the profile fetch.
             if (!skipReveal) this._revealPage();
+
+            // Inject sidebar link fallbacks for TV D-pad targeting
+            this.injectSidebarLink();
         },
 
         // Smoothly fades the page back in after a profile switch.
@@ -439,7 +442,9 @@
                     requiresPin: p.requiresPin !== undefined ? p.requiresPin : p.RequiresPin,
                     isMaster: p.isMaster !== undefined ? p.isMaster : p.IsMaster,
                     lockoutMinutes: p.lockoutMinutes !== undefined ? p.lockoutMinutes : (p.LockoutMinutes !== undefined ? p.LockoutMinutes : 5),
-                    maxSubProfiles: p.maxSubProfiles !== undefined ? p.maxSubProfiles : (p.MaxSubProfiles !== undefined ? p.MaxSubProfiles : 5)
+                    maxSubProfiles: p.maxSubProfiles !== undefined ? p.maxSubProfiles : (p.MaxSubProfiles !== undefined ? p.MaxSubProfiles : 5),
+                    bypassPinOnLocalNetwork: p.bypassPinOnLocalNetwork !== undefined ? p.bypassPinOnLocalNetwork : (p.BypassPinOnLocalNetwork !== undefined ? p.BypassPinOnLocalNetwork : false),
+                    allowedDeviceIds: p.allowedDeviceIds || p.AllowedDeviceIds || []
                 }));
                 this.cachedProfiles = normalized;
                 this.showProfileOverlay(normalized);
@@ -1059,13 +1064,15 @@
             const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
             if (!masterState) return;
 
-            // Fetch libraries matching master user permissions
+            // Fetch libraries matching master user permissions and connected devices
             const libUrl = apiClient.getUrl('plugins/profiles/libraries');
-            fetch(libUrl, {
-                headers: this.getAuthHeaders(masterState.masterToken)
-            })
-            .then(res => res.json())
-            .then(libraries => {
+            const devicesUrl = apiClient.getUrl('plugins/profiles/devices');
+
+            Promise.all([
+                fetch(libUrl, { headers: this.getAuthHeaders(masterState.masterToken) }).then(res => res.json()),
+                fetch(devicesUrl, { headers: this.getAuthHeaders(masterState.masterToken) }).then(res => res.json()).catch(() => [])
+            ])
+            .then(([libraries, devices]) => {
                 const normalizedLibs = (libraries || []).map(lib => ({
                     id: lib.id || lib.Id,
                     name: lib.name || lib.Name,
@@ -1084,6 +1091,13 @@
                             <input type="text" id="create-pin-input" maxlength="8" pattern="[0-9]*" inputmode="numeric" placeholder="Leave empty for no PIN" autocomplete="one-time-code" data-1p-ignore data-lpignore="true" data-bwignore data-protonpass-ignore="true" />
                         </div>
                         <div class="form-group">
+                            <label class="library-check-label" style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="create-local-bypass-checkbox" style="cursor: pointer; accent-color: #00a4dc;" />
+                                <span>Bypass PIN on local network (LAN)</span>
+                            </label>
+                            <div class="form-hint">If enabled, users on the local home network won't be prompted for a PIN.</div>
+                        </div>
+                        <div class="form-group">
                             <label>Auto-lock after inactivity</label>
                             <select id="create-lockout-select">
                                 <option value="0">Never</option>
@@ -1095,6 +1109,33 @@
                                 <option value="60">1 hour</option>
                             </select>
                             <div class="form-hint">Only applies when this profile has a PIN set</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Allowed Devices (Optional)</label>
+                            <div class="devices-dropdown-container" style="position: relative;">
+                                <div id="create-devices-dropdown-trigger" class="devices-dropdown-trigger" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; user-select: none; font-size: 0.95rem;">
+                                    <span id="create-devices-dropdown-selected-text">All Devices Allowed</span>
+                                    <span style="font-size: 0.8rem; opacity: 0.7;">▼</span>
+                                </div>
+                                <div id="create-devices-dropdown-list" class="devices-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: #202020; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; max-height: 250px; overflow-y: auto; z-index: 10000; margin-top: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                                    ${devices && devices.length > 0 ? devices.map(dev => {
+                                        return `
+                                            <div class="device-dropdown-item" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1; margin: 0; font-size: 0.9rem;">
+                                                    <input type="checkbox" class="create-device-checkbox" value="${dev.deviceId}" style="cursor: pointer; accent-color: #00a4dc;" />
+                                                    <span style="display: flex; flex-direction: column;">
+                                                        <span style="font-weight: 500;">${dev.deviceName}</span>
+                                                        <span style="font-size: 0.75rem; opacity: 0.6;">${dev.client} • Last seen ${new Date(dev.lastSeen).toLocaleDateString()}</span>
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        `;
+                                    }).join('') : `
+                                        <div style="padding: 12px; text-align: center; opacity: 0.6; font-size: 0.9rem;">No connected devices found</div>
+                                    `}
+                                </div>
+                            </div>
+                            <div class="form-hint">If no devices are selected, this profile can be accessed from any device.</div>
                         </div>
                         <div class="form-group">
                             <label>Avatar Color</label>
@@ -1192,15 +1233,55 @@
                     });
                 }
 
+                // Devices dropdown logic for create
+                const createTrigger = document.getElementById('create-devices-dropdown-trigger');
+                const createList = document.getElementById('create-devices-dropdown-list');
+                if (createTrigger && createList) {
+                    createTrigger.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        createList.style.display = createList.style.display === 'none' ? 'block' : 'none';
+                    });
+                    document.addEventListener('click', () => {
+                        createList.style.display = 'none';
+                    });
+                    createList.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                    });
+                }
+
+                const updateCreateSelectedText = () => {
+                    const checked = Array.from(content.querySelectorAll('.create-device-checkbox:checked'));
+                    const txt = document.getElementById('create-devices-dropdown-selected-text');
+                    if (txt) {
+                        if (checked.length === 0) {
+                            txt.textContent = 'All Devices Allowed';
+                        } else if (checked.length === 1) {
+                            txt.textContent = '1 Device Restricted';
+                        } else {
+                            txt.textContent = `${checked.length} Devices Restricted`;
+                        }
+                    }
+                };
+                content.querySelectorAll('.create-device-checkbox').forEach(cb => {
+                    cb.addEventListener('change', updateCreateSelectedText);
+                });
+                updateCreateSelectedText();
+
                 document.getElementById('create-submit-btn').addEventListener('click', () => {
                     const name = document.getElementById('create-name-input').value.trim();
                     const pin = document.getElementById('create-pin-input').value;
                     const rating = document.getElementById('create-rating-select').value;
                     const lockoutMinutes = parseInt(document.getElementById('create-lockout-select').value, 10);
+                    const bypassPin = document.getElementById('create-local-bypass-checkbox').checked;
                     
                     const checkedLibs = [];
                     content.querySelectorAll('.library-checkbox:checked').forEach(cb => {
                         checkedLibs.push(cb.value);
+                    });
+
+                    const checkedDevices = [];
+                    content.querySelectorAll('.create-device-checkbox:checked').forEach(cb => {
+                        checkedDevices.push(cb.value);
                     });
 
                     const showCreateError = (msg) => {
@@ -1232,7 +1313,9 @@
                             maxParentalRating: rating || null,
                             enabledFolders: checkedLibs,
                             masterPin: this.masterPin,
-                            lockoutMinutes: lockoutMinutes
+                            lockoutMinutes: lockoutMinutes,
+                            bypassPinOnLocalNetwork: bypassPin,
+                            allowedDeviceIds: checkedDevices
                         })
                     })
                     .then(res => {
@@ -1259,16 +1342,17 @@
             const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
             if (!masterState) return;
 
-            // Fetch libraries matching master permissions
+            // Fetch libraries, target user details, and connected devices
             const libUrl = apiClient.getUrl('plugins/profiles/libraries');
-            // Fetch target profile user's specific policy details
             const userUrl = apiClient.getUrl(`Users/${profile.profileUserId}`);
+            const devicesUrl = apiClient.getUrl('plugins/profiles/devices');
 
             Promise.all([
                 fetch(libUrl, { headers: this.getAuthHeaders(masterState.masterToken) }).then(res => res.json()),
-                fetch(userUrl, { headers: this.getAuthHeaders(masterState.masterToken) }).then(res => res.json())
+                fetch(userUrl, { headers: this.getAuthHeaders(masterState.masterToken) }).then(res => res.json()),
+                fetch(devicesUrl, { headers: this.getAuthHeaders(masterState.masterToken) }).then(res => res.json()).catch(() => [])
             ])
-            .then(([libraries, userDetails]) => {
+            .then(([libraries, userDetails, devices]) => {
                 const normalizedLibs = (libraries || []).map(lib => ({
                     id: lib.id || lib.Id,
                     name: lib.name || lib.Name,
@@ -1296,6 +1380,14 @@
                                 <input type="text" id="edit-pin-input" maxlength="8" pattern="[0-9]*" inputmode="numeric" placeholder="${profile.requiresPin ? '••••' : 'Unprotected'}" autocomplete="one-time-code" data-1p-ignore data-lpignore="true" data-bwignore data-protonpass-ignore="true" style="flex:1;" />
                                 ${profile.requiresPin ? `<button id="edit-clear-pin-btn" class="profiles-btn btn-secondary" style="padding:10px 15px;">Clear PIN</button>` : ''}
                             </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="library-check-label" style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="edit-local-bypass-checkbox" ${profile.bypassPinOnLocalNetwork ? 'checked' : ''} style="cursor: pointer; accent-color: #00a4dc;" />
+                                <span>Bypass PIN on local network (LAN)</span>
+                            </label>
+                            <div class="form-hint">If enabled, users on the local home network won't be prompted for a PIN.</div>
                         </div>
 
                         <div class="form-group">
@@ -1338,6 +1430,38 @@
 
                         ${!profile.isMaster ? `
                         <div class="form-group">
+                            <label>Allowed Devices (Optional)</label>
+                            <div class="devices-dropdown-container" style="position: relative;">
+                                <div id="devices-dropdown-trigger" class="devices-dropdown-trigger" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; user-select: none; font-size: 0.95rem;">
+                                    <span id="devices-dropdown-selected-text">All Devices Allowed</span>
+                                    <span style="font-size: 0.8rem; opacity: 0.7;">▼</span>
+                                </div>
+                                <div id="devices-dropdown-list" class="devices-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: #202020; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; max-height: 250px; overflow-y: auto; z-index: 10000; margin-top: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                                    ${devices && devices.length > 0 ? devices.map(dev => {
+                                        const isChecked = profile.allowedDeviceIds && profile.allowedDeviceIds.includes(dev.deviceId);
+                                        return `
+                                            <div class="device-dropdown-item" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1; margin: 0; font-size: 0.9rem;">
+                                                    <input type="checkbox" class="device-checkbox" value="${dev.deviceId}" ${isChecked ? 'checked' : ''} style="cursor: pointer; accent-color: #00a4dc;" />
+                                                    <span style="display: flex; flex-direction: column;">
+                                                        <span style="font-weight: 500;">${dev.deviceName}</span>
+                                                        <span style="font-size: 0.75rem; opacity: 0.6;">${dev.client} • Last seen ${new Date(dev.lastSeen).toLocaleDateString()}</span>
+                                                    </span>
+                                                </label>
+                                                <button type="button" class="device-delete-btn" data-id="${dev.deviceId}" style="background: transparent; border: none; color: #ff6b6b; cursor: pointer; padding: 6px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,107,107,0.15)'" onmouseout="this.style.background='transparent'">
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        `;
+                                    }).join('') : `
+                                        <div style="padding: 12px; text-align: center; opacity: 0.6; font-size: 0.9rem;">No connected devices found</div>
+                                    `}
+                                </div>
+                            </div>
+                            <div class="form-hint">If no devices are selected, this profile can be accessed from any device.</div>
+                        </div>
+
+                        <div class="form-group">
                             <label>Max Parental Rating Limit (Optional)</label>
                             <select id="edit-rating-select">
                                 <option value="" ${maxRating === null ? 'selected' : ''}>No Restrictions</option>
@@ -1358,16 +1482,11 @@
                             </div>
                             <div class="library-checklist">
                         ${normalizedLibs.map(lib => {
-                                    // Use the plugin's own stored EnabledFolders as ground truth.
-                                    // Falls back to the BlockedMediaFolders approach only for legacy profiles
-                                    // that predate this field (will auto-migrate on next profile switch).
                                     const storedFolders = profile.enabledFolders;
                                     let isChecked;
                                     if (storedFolders !== null && storedFolders !== undefined) {
-                                        // Ground truth: a folder is enabled only if explicitly listed
                                         isChecked = storedFolders.some(id => this.normalizeGuid(id) === this.normalizeGuid(lib.id));
                                     } else {
-                                        // Legacy fallback: infer from Jellyfin policy BlockedMediaFolders
                                         isChecked = enableAll || !blockedFolders.some(bf => this.normalizeGuid(bf) === this.normalizeGuid(lib.id));
                                     }
                                     return `
@@ -1379,7 +1498,16 @@
                                 }).join('')}
                             </div>
                         </div>
-                        ` : ''}
+                        ` : `
+                        <div class="form-group" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
+                            <label style="font-size: 1.1rem; font-weight: 600; color: #00a4dc; margin-bottom: 0.8rem; display: block;">Bonfire Grouping (Plex Home style)</label>
+                            <div id="bonfire-container" style="background: rgba(0,0,0,0.15); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px;">
+                                <div style="display: flex; justify-content: center; padding: 10px;">
+                                    <div class="profiles-loading-spinner" style="border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top: 3px solid #00a4dc; width: 24px; height: 24px; animation: spin 1s linear infinite;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        `}
 
                         <div class="profile-dialog-actions">
                             <div class="dialog-action-buttons">
@@ -1392,6 +1520,224 @@
                         </div>
                     </div>
                 `;
+
+                // Setup active color dot selection
+                const dots = content.querySelectorAll('.color-dot');
+                let selectedColor = profile.avatarColor || '#00A4DC';
+                dots.forEach(dot => {
+                    const color = dot.getAttribute('data-color');
+                    if (color.toLowerCase() === selectedColor.toLowerCase()) {
+                        dot.classList.add('active');
+                    }
+                    dot.addEventListener('click', () => {
+                        dots.forEach(d => d.classList.remove('active'));
+                        dot.classList.add('active');
+                        selectedColor = color;
+                    });
+                });
+
+                // Support D-pad Enter/Space select on color dots
+                content.addEventListener('keydown', (e) => {
+                    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('color-dot')) {
+                        e.preventDefault();
+                        e.target.click();
+                    }
+                });
+
+                // Select all libraries logic for edit
+                const selectAllCheckbox = document.getElementById('edit-select-all-libraries');
+                const libCheckboxes = content.querySelectorAll('.library-checkbox');
+                if (selectAllCheckbox) {
+                    const allChecked = libCheckboxes.length > 0 && Array.from(libCheckboxes).every(c => c.checked);
+                    selectAllCheckbox.checked = allChecked;
+
+                    selectAllCheckbox.addEventListener('change', (e) => {
+                        const isChecked = e.target.checked;
+                        libCheckboxes.forEach(cb => {
+                            cb.checked = isChecked;
+                        });
+                    });
+
+                    libCheckboxes.forEach(cb => {
+                        cb.addEventListener('change', () => {
+                            const allChecked = Array.from(libCheckboxes).every(c => c.checked);
+                            selectAllCheckbox.checked = allChecked;
+                        });
+                    });
+                }
+
+                // Devices dropdown logic for edit
+                const editTrigger = document.getElementById('devices-dropdown-trigger');
+                const editList = document.getElementById('devices-dropdown-list');
+                if (editTrigger && editList) {
+                    editTrigger.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        editList.style.display = editList.style.display === 'none' ? 'block' : 'none';
+                    });
+                    document.addEventListener('click', () => {
+                        editList.style.display = 'none';
+                    });
+                    editList.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                    });
+                }
+
+                const updateSelectedText = () => {
+                    const checked = Array.from(content.querySelectorAll('.device-checkbox:checked'));
+                    const txt = document.getElementById('devices-dropdown-selected-text');
+                    if (txt) {
+                        if (checked.length === 0) {
+                            txt.textContent = 'All Devices Allowed';
+                        } else if (checked.length === 1) {
+                            txt.textContent = '1 Device Restricted';
+                        } else {
+                            txt.textContent = `${checked.length} Devices Restricted`;
+                        }
+                    }
+                };
+                content.querySelectorAll('.device-checkbox').forEach(cb => {
+                    cb.addEventListener('change', updateSelectedText);
+                });
+                updateSelectedText();
+
+                // Device deletion handler
+                content.querySelectorAll('.device-delete-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const devId = btn.getAttribute('data-id');
+                        if (confirm('Are you sure you want to delete this device from the connected history? This will also remove any access restrictions associated with it.')) {
+                            const delDevUrl = apiClient.getUrl('plugins/profiles/devices/delete');
+                            fetch(delDevUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    ...this.getAuthHeaders(masterState.masterToken)
+                                },
+                                body: JSON.stringify({ deviceId: devId })
+                            })
+                            .then(res => {
+                                if (res.ok) {
+                                    const row = btn.closest('.device-dropdown-item');
+                                    if (row) row.remove();
+                                    const remaining = editList.querySelectorAll('.device-dropdown-item');
+                                    if (remaining.length === 0) {
+                                        editList.innerHTML = '<div style="padding: 12px; text-align: center; opacity: 0.6; font-size: 0.9rem;">No connected devices found</div>';
+                                    }
+                                    updateSelectedText();
+                                } else {
+                                    alert('Failed to delete device.');
+                                }
+                            })
+                            .catch(err => alert('Error: ' + err.message));
+                        }
+                    });
+                });
+
+                // Clear PIN logic
+                let isPinCleared = false;
+                const clearPinBtn = document.getElementById('edit-clear-pin-btn');
+                if (clearPinBtn) {
+                    clearPinBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        isPinCleared = true;
+                        document.getElementById('edit-pin-input').value = '';
+                        document.getElementById('edit-pin-input').placeholder = 'Unprotected';
+                        clearPinBtn.style.display = 'none';
+                    });
+                }
+
+                // If master user, load bonfire status
+                if (profile.isMaster) {
+                    this.loadBonfireStatus(content, apiClient, masterState.masterToken);
+                }
+
+                // Save handler
+                document.getElementById('edit-submit-btn').addEventListener('click', () => {
+                    const name = document.getElementById('edit-name-input').value.trim();
+                    const pinVal = document.getElementById('edit-pin-input').value;
+                    const bypassPin = document.getElementById('edit-local-bypass-checkbox').checked;
+                    
+                    let rating = null;
+                    let checkedLibs = null;
+                    let checkedDevices = null;
+                    if (!profile.isMaster) {
+                        rating = document.getElementById('edit-rating-select').value;
+                        checkedLibs = [];
+                        content.querySelectorAll('.library-checkbox:checked').forEach(cb => {
+                            checkedLibs.push(cb.value);
+                        });
+                        checkedDevices = [];
+                        content.querySelectorAll('.device-checkbox:checked').forEach(cb => {
+                            checkedDevices.push(cb.value);
+                        });
+                    }
+                    const lockoutSel = document.getElementById('edit-lockout-select');
+                    const lockoutMinutes = lockoutSel ? parseInt(lockoutSel.value, 10) : undefined;
+
+                    if (!name) {
+                        alert("Profile name is required.");
+                        return;
+                    }
+
+                    let pin = null;
+                    if (isPinCleared) {
+                        pin = ''; // Tells backend to clear the PIN
+                    } else if (pinVal) {
+                        if (pinVal.length < 4 || pinVal.length > 8 || !/^\d+$/.test(pinVal)) {
+                            alert("PIN code must be a numeric value between 4 and 8 digits.");
+                            return;
+                        }
+                        pin = pinVal;
+                    }
+
+                    const updateUrl = apiClient.getUrl('plugins/profiles/update');
+                    fetch(updateUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...this.getAuthHeaders(masterState.masterToken)
+                        },
+                        body: JSON.stringify({
+                            profileId: profile.profileUserId,
+                            profileName: name,
+                            pin: pin,
+                            avatarColor: selectedColor,
+                            maxParentalRating: rating || null,
+                            enabledFolders: checkedLibs,
+                            masterPin: this.masterPin,
+                            lockoutMinutes: lockoutMinutes,
+                            bypassPinOnLocalNetwork: bypassPin,
+                            allowedDeviceIds: checkedDevices
+                        })
+                    })
+                    .then(res => {
+                        if (!res.ok) return res.text().then(text => { throw new Error(text); });
+                        this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
+                    })
+                    .catch(err => alert("Error saving profile: " + err.message));
+                });
+
+                // Delete handler
+                const delBtn = document.getElementById('edit-delete-btn');
+                if (delBtn) {
+                    delBtn.addEventListener('click', () => {
+                        if (confirm(`Are you sure you want to delete profile "${profile.profileName}" and its underlying user account?`)) {
+                            this.executeProfileDeletion(profile.profileUserId);
+                        }
+                    });
+                }
+
+                // Cancel handler
+                document.getElementById('edit-cancel-btn').addEventListener('click', () => {
+                    this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
+                });
+            })
+            .catch(err => {
+                alert("Failed to load profile details: " + err.message);
+                this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
+            });
+        },
 
                 // Setup active color dot selection
                 const dots = content.querySelectorAll('.color-dot');
@@ -1555,6 +1901,229 @@
             .catch(err => alert("Error deleting profile: " + err.message));
         },
 
+        loadBonfireStatus: function (content, apiClient, masterToken) {
+            const container = content.querySelector('#bonfire-container');
+            if (!container) return;
+
+            const statusUrl = apiClient.getUrl('plugins/profiles/bonfire/status');
+            fetch(statusUrl, { headers: this.getAuthHeaders(masterToken) })
+            .then(res => res.json())
+            .then(status => {
+                this.renderBonfireStatus(container, status, apiClient, masterToken);
+            })
+            .catch(err => {
+                container.innerHTML = `<div style="color: #ff6b6b; font-size: 0.9rem;">Failed to load Bonfire status: ${err.message}</div>`;
+            });
+        },
+
+        renderBonfireStatus: function (container, status, apiClient, masterToken) {
+            if (status.isOwner) {
+                container.innerHTML = `
+                    <div style="margin-bottom: 12px;">
+                        <span style="font-size: 0.9rem; opacity: 0.8;">You are the host of a Bonfire Group. Share this 6-character code with other users on the server so they can join your home:</span>
+                        <div style="font-size: 2rem; font-weight: 700; color: #22c55e; letter-spacing: 4px; margin: 12px 0; font-family: monospace; text-align: center; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px dashed rgba(34,197,94,0.3);">${status.ownedCode}</div>
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <label style="font-size: 0.9rem; font-weight: 600; margin-bottom: 8px; display: block;">Members (${status.ownedMembers ? status.ownedMembers.length : 0})</label>
+                        <div style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto;">
+                            ${status.ownedMembers && status.ownedMembers.length > 0 ? status.ownedMembers.map(m => `
+                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                                    <span style="font-size: 0.9rem; font-weight: 500;">${m.username}</span>
+                                    <button type="button" class="bonfire-kick-btn" data-id="${m.userId}" style="background: #ff6b6b; border: none; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; font-weight: 600;">Kick</button>
+                                </div>
+                            `).join('') : '<div style="font-size: 0.85rem; opacity: 0.5; font-style: italic;">No members joined yet.</div>'}
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+                        <button type="button" id="bonfire-delete-btn" class="profiles-btn btn-danger" style="padding: 8px 14px; font-size: 0.85rem;">Delete Group</button>
+                    </div>
+                `;
+
+                container.querySelectorAll('.bonfire-kick-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const mId = btn.getAttribute('data-id');
+                        if (confirm('Are you sure you want to kick this user from your Bonfire group?')) {
+                            fetch(apiClient.getUrl('plugins/profiles/bonfire/kick'), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders(masterToken) },
+                                body: JSON.stringify({ memberId: mId })
+                            })
+                            .then(res => {
+                                if (res.ok) this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                                else alert('Failed to kick member.');
+                            });
+                        }
+                    });
+                });
+
+                container.querySelector('#bonfire-delete-btn').addEventListener('click', () => {
+                    if (confirm('Are you sure you want to delete your Bonfire group? All members will be disconnected and will no longer appear in your switcher.')) {
+                        fetch(apiClient.getUrl('plugins/profiles/bonfire/delete-group'), {
+                            method: 'POST',
+                            headers: masterToken
+                        })
+                        .then(res => {
+                            if (res.ok) this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                            else alert('Failed to delete group.');
+                        });
+                    }
+                });
+
+            } else if (status.isMember) {
+                container.innerHTML = `
+                    <div style="margin-bottom: 12px;">
+                        <span style="font-size: 0.9rem; opacity: 0.8;">You have joined a Bonfire Group owned by:</span>
+                        <div style="font-size: 1.1rem; font-weight: 600; color: #00a4dc; margin: 8px 0;">${status.joinedOwnerName}</div>
+                        <span style="font-size: 0.85rem; opacity: 0.6; display: block; margin-top: 4px;">You can access each other's profiles from the switcher grid.</span>
+                    </div>
+                    <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+                        <button type="button" id="bonfire-leave-btn" class="profiles-btn btn-danger" style="padding: 8px 14px; font-size: 0.85rem;">Leave Group</button>
+                    </div>
+                `;
+
+                container.querySelector('#bonfire-leave-btn').addEventListener('click', () => {
+                    if (confirm('Are you sure you want to leave this Bonfire group? You will no longer share profile switchers.')) {
+                        fetch(apiClient.getUrl('plugins/profiles/bonfire/leave'), {
+                            method: 'POST',
+                            headers: masterToken
+                        })
+                        .then(res => {
+                            if (res.ok) this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                            else alert('Failed to leave group.');
+                        });
+                    }
+                });
+
+            } else {
+                container.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 16px;">
+                        <div>
+                            <span style="font-size: 0.88rem; opacity: 0.7; display: block; margin-bottom: 10px;">Link up with other users on this server to share profile switchers.</span>
+                            <button type="button" id="bonfire-generate-btn" class="profiles-btn btn-primary" style="width: 100%; padding: 10px; font-weight: 600;">Generate Join Code</button>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 10px; opacity: 0.5;">
+                            <hr style="flex: 1; border: none; border-top: 1px solid rgba(255,255,255,0.2);" />
+                            <span style="font-size: 0.8rem;">OR</span>
+                            <hr style="flex: 1; border: none; border-top: 1px solid rgba(255,255,255,0.2);" />
+                        </div>
+                        <div>
+                            <label style="font-size: 0.85rem; opacity: 0.7; margin-bottom: 6px; display: block;">Enter a friend's Bonfire Code to join their group:</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="bonfire-join-input" placeholder="e.g. B7F8XA" maxlength="6" style="flex: 1; text-align: center; text-transform: uppercase; font-family: monospace; letter-spacing: 2px;" />
+                                <button type="button" id="bonfire-join-btn" class="profiles-btn btn-primary" style="padding: 10px 18px;">Join</button>
+                            </div>
+                            <div id="bonfire-join-error" style="display: none; color: #ff6b6b; font-size: 0.85rem; font-weight: 600; margin-top: 8px; text-align: center;"></div>
+                        </div>
+                    </div>
+                `;
+
+                container.querySelector('#bonfire-generate-btn').addEventListener('click', () => {
+                    fetch(apiClient.getUrl('plugins/profiles/bonfire/generate'), {
+                        method: 'POST',
+                        headers: this.getAuthHeaders(masterToken)
+                    })
+                    .then(res => {
+                        if (res.ok) this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                        else alert('Failed to generate code.');
+                    });
+                });
+
+                const joinInput = container.querySelector('#bonfire-join-input');
+                const joinBtn = container.querySelector('#bonfire-join-btn');
+                const errDiv = container.querySelector('#bonfire-join-error');
+
+                const performJoin = () => {
+                    const code = joinInput.value.trim();
+                    errDiv.style.display = 'none';
+                    if (!code || code.length !== 6) {
+                        errDiv.textContent = 'Please enter a 6-character code.';
+                        errDiv.style.display = 'block';
+                        return;
+                    }
+                    fetch(apiClient.getUrl('plugins/profiles/bonfire/join'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders(masterToken) },
+                        body: JSON.stringify({ code: code })
+                    })
+                    .then(res => {
+                        if (res.status === 429) {
+                            errDiv.textContent = 'Too many failed attempts. Try again in 15 minutes.';
+                            errDiv.style.display = 'block';
+                            return;
+                        }
+                        if (!res.ok) return res.text().then(text => { throw new Error(text); });
+                        this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                    })
+                    .catch(err => {
+                        errDiv.textContent = err.message || 'Failed to join group.';
+                        errDiv.style.display = 'block';
+                    });
+                };
+
+                joinBtn.addEventListener('click', performJoin);
+                joinInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') performJoin();
+                });
+            }
+        },
+
+        injectSidebarLink: function () {
+            if (!this.isProfileSessionActive()) {
+                const existing = document.getElementById('profiles-sidebar-link');
+                if (existing) existing.remove();
+                return;
+            }
+
+            const container = document.querySelector('.sidebar-nav') || 
+                              document.querySelector('.navMenu') || 
+                              document.getElementById('menuItems');
+            if (!container) return;
+
+            if (document.getElementById('profiles-sidebar-link')) return;
+
+            const link = document.createElement('a');
+            link.id = 'profiles-sidebar-link';
+            link.href = '#';
+            link.className = 'sidebarLink navMenu-link';
+            link.setAttribute('tabindex', '0');
+            link.style.display = 'flex';
+            link.style.alignItems = 'center';
+            link.style.gap = '10px';
+            link.style.cursor = 'pointer';
+
+            const activeInfo = JSON.parse(sessionStorage.getItem('jellyfin_profiles_active_info')) || {};
+            const initial = activeInfo.initial || 'P';
+            const color = activeInfo.color || '#00A4DC';
+            const name = activeInfo.name || 'Switch Profile';
+
+            link.innerHTML = `
+                <div class="sidebar-profile-avatar" style="width: 24px; height: 24px; border-radius: 50%; background-color: ${color}; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: bold; text-transform: uppercase; flex-shrink: 0;">
+                    ${initial}
+                </div>
+                <span class="sidebarLinkText">${name} (Switch)</span>
+            `;
+
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const drawer = document.querySelector('.drawer-open');
+                if (drawer) {
+                    const mask = document.querySelector('.appdrawer-mask');
+                    if (mask) mask.click();
+                }
+                this.handleBubbleClick();
+            });
+
+            link.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    link.click();
+                }
+            });
+
+            container.appendChild(link);
+        },
+
         // ── Bubble visibility helpers ──────────────────────────────────────────
         _bubbleHide: function (bubble) {
             if (!bubble || bubble.dataset.profilesHiding === '1') return;
@@ -1698,7 +2267,9 @@
                         requiresPin: p.requiresPin !== undefined ? p.requiresPin : p.RequiresPin,
                         isMaster: p.isMaster !== undefined ? p.isMaster : p.IsMaster,
                         lockoutMinutes: p.lockoutMinutes !== undefined ? p.lockoutMinutes : (p.LockoutMinutes !== undefined ? p.LockoutMinutes : 5),
-                        maxSubProfiles: p.maxSubProfiles !== undefined ? p.maxSubProfiles : (p.MaxSubProfiles !== undefined ? p.MaxSubProfiles : 5)
+                        maxSubProfiles: p.maxSubProfiles !== undefined ? p.maxSubProfiles : (p.MaxSubProfiles !== undefined ? p.MaxSubProfiles : 5),
+                        bypassPinOnLocalNetwork: p.bypassPinOnLocalNetwork !== undefined ? p.bypassPinOnLocalNetwork : (p.BypassPinOnLocalNetwork !== undefined ? p.BypassPinOnLocalNetwork : false),
+                        allowedDeviceIds: p.allowedDeviceIds || p.AllowedDeviceIds || []
                     }));
                     this._profilePrefetchPending = false;
                 })

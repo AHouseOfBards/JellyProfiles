@@ -14,5 +14,7 @@ namespace Jellyfin.Profiles.Models
         public string? MasterPin { get; set; }
         /// <summary>Minutes of inactivity before auto-lock. 0 = never. Null = leave unchanged.</summary>
         public int? LockoutMinutes { get; set; }
+        public bool? BypassPinOnLocalNetwork { get; set; }
+        public List<string>? AllowedDeviceIds { get; set; }
     }
 }

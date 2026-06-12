@@ -9,6 +9,24 @@ namespace Jellyfin.Profiles.Configuration
         public int MaxProfilesPerUser { get; set; } = 5;
         public bool RequireMasterPinForCreation { get; set; } = true;
         public List<ProfileMapping> Mappings { get; set; } = new List<ProfileMapping>();
+        public List<KnownDevice> KnownDevices { get; set; } = new List<KnownDevice>();
+        public List<BonfireGroup> BonfireGroups { get; set; } = new List<BonfireGroup>();
+    }
+
+    public class KnownDevice
+    {
+        public string DeviceId { get; set; } = string.Empty;
+        public string DeviceName { get; set; } = string.Empty;
+        public string Client { get; set; } = string.Empty;
+        public DateTime LastSeen { get; set; }
+    }
+
+    public class BonfireGroup
+    {
+        public string GroupId { get; set; } = Guid.NewGuid().ToString().Substring(0, 8);
+        public string BonfireCode { get; set; } = string.Empty; // 6-character alphanumeric code
+        public Guid OwnerUserId { get; set; }
+        public List<Guid> MemberUserIds { get; set; } = new List<Guid>();
     }
 
     public class ProfileMapping
@@ -30,5 +48,7 @@ namespace Jellyfin.Profiles.Configuration
         /// Empty list = no library access. Null = not yet set (legacy; falls back to Jellyfin policy).
         /// </summary>
         public List<Guid>? EnabledFolders { get; set; }
+        public bool BypassPinOnLocalNetwork { get; set; } = false;
+        public List<string> AllowedDeviceIds { get; set; } = new List<string>();
     }
 }

@@ -128,7 +128,9 @@ Returns all profiles available to the authenticated user.
     "requiresPin": true,
     "isMaster": true,
     "lockoutMinutes": 10,
-    "maxSubProfiles": 5
+    "maxSubProfiles": 5,
+    "bypassPinOnLocalNetwork": false,
+    "allowedDeviceIds": []
   },
   {
     "profileUserId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b",
@@ -138,7 +140,9 @@ Returns all profiles available to the authenticated user.
     "requiresPin": false,
     "isMaster": false,
     "lockoutMinutes": 0,
-    "enabledFolders": ["e67b2d5a39cb400ba45a7b0a70198de7"]
+    "enabledFolders": ["e67b2d5a39cb400ba45a7b0a70198de7"],
+    "bypassPinOnLocalNetwork": true,
+    "allowedDeviceIds": ["57bfa7e8d35f492b950bf93c9d747a11"]
   }
 ]
 ```
@@ -154,6 +158,8 @@ Returns all profiles available to the authenticated user.
 | `lockoutMinutes` | `integer` | Minutes of inactivity before auto-lock. `0` = never. Only relevant when `requiresPin` is `true`. |
 | `maxSubProfiles` | `integer` | Maximum number of sub-profiles allowed for this master account. Only present on the master entry (`isMaster: true`). Configured by the server admin. Use this to conditionally hide or disable your "Add Profile" UI when the count of sub-profiles equals this value. |
 | `enabledFolders` | `string[]` | Library GUIDs this profile can access. Only present on sub-profiles (`isMaster: false`). Empty array means no library access. Use this to pre-populate a library selector in your management UI. |
+| `bypassPinOnLocalNetwork` | `boolean` | Whether PIN checking is bypassed when the client is on the local home network (LAN). |
+| `allowedDeviceIds` | `string[]` | Specific Device IDs allowed to access this sub-profile. If empty/null, no device restriction is applied. |
 
 ---
 
@@ -471,7 +477,9 @@ Creates a new sub-profile.
   "maxParentalRating": "6",
   "enabledFolders": ["e67b2d5a39cb400ba45a7b0a70198de7"],
   "lockoutMinutes": 5,
-  "masterPin": "1234"
+  "masterPin": "1234",
+  "bypassPinOnLocalNetwork": false,
+  "allowedDeviceIds": []
 }
 ```
 
@@ -484,6 +492,8 @@ Creates a new sub-profile.
 | `enabledFolders` | `string[]` | No | Library GUIDs this profile can access. Pass an empty array to deny all library access |
 | `lockoutMinutes` | `integer` | No | Inactivity lockout in minutes. `0` = never. Defaults to `5`. Only enforced when the profile has a PIN |
 | `masterPin` | `string` | Conditional | Required if the master account has a PIN |
+| `bypassPinOnLocalNetwork` | `boolean` | No | Enable local network PIN bypass for this profile. Defaults to `false` |
+| `allowedDeviceIds` | `string[]` | No | Specific device IDs allowed to switch to this sub-profile. Empty/null for no restriction |
 
 **Response `200 OK`:**
 ```json
@@ -509,7 +519,9 @@ Updates an existing profile.
   "maxParentalRating": "10",
   "enabledFolders": ["e67b2d5a39cb400ba45a7b0a70198de7"],
   "lockoutMinutes": 30,
-  "masterPin": "1234"
+  "masterPin": "1234",
+  "bypassPinOnLocalNetwork": false,
+  "allowedDeviceIds": []
 }
 ```
 
@@ -523,6 +535,8 @@ Updates an existing profile.
 | `enabledFolders` | `string[] \| null` | No | Updated library access list. Pass `null` to leave unchanged |
 | `lockoutMinutes` | `integer \| null` | No | New lockout setting. `0` = never. Pass `null` to leave unchanged |
 | `masterPin` | `string` | Conditional | Required if the master account has a PIN |
+| `bypassPinOnLocalNetwork` | `boolean` | No | Updated local network bypass setting. Pass `null` to leave unchanged |
+| `allowedDeviceIds` | `string[]` | No | Updated list of allowed device IDs. Pass `null` to leave unchanged |
 
 ---
 
@@ -566,6 +580,153 @@ Returns the media libraries visible to the authenticated user. Use this to popul
   }
 ]
 ```
+
+---
+
+## Device Log & Restrictions Endpoints
+
+These endpoints are used to track and delete connected device history records.
+
+### `GET /plugins/profiles/devices`
+
+Returns a list of all known/connected devices that have interacted with the Profiles plugin.
+
+**Authorization:** Any authenticated user token
+
+**Response `200 OK`:**
+```json
+[
+  {
+    "deviceId": "57bfa7e8d35f492b950bf93c9d747a11",
+    "deviceName": "Chrome",
+    "client": "Jellyfin Web",
+    "lastSeen": "2026-06-12T09:41:46.806Z"
+  }
+]
+```
+
+---
+
+### `POST /plugins/profiles/devices/delete`
+
+Deletes a device from the known devices log, and clears it from any profile's allowed devices list.
+
+**Authorization:** Master User token
+
+**Request body:**
+```json
+{
+  "deviceId": "57bfa7e8d35f492b950bf93c9d747a11"
+}
+```
+
+**Response `200 OK`** on success.
+
+---
+
+## Bonfire Codes (Plex Home-style Grouping) Endpoints
+
+These endpoints allow master accounts on the same server to link together in a Bonfire group, enabling profile switching across different master accounts' home lists.
+
+### `GET /plugins/profiles/bonfire/status`
+
+Returns the bonfire status of the caller's master account.
+
+**Authorization:** Master User token
+
+**Response `200 OK`:**
+```json
+{
+  "isOwner": true,
+  "ownedCode": "B7F8XA",
+  "ownedMembers": [
+    {
+      "userId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b",
+      "username": "FriendMaster"
+    }
+  ],
+  "isMember": false,
+  "joinedOwnerName": null,
+  "joinedOwnerId": null
+}
+```
+
+---
+
+### `POST /plugins/profiles/bonfire/generate`
+
+Generates a new 6-character alphanumeric bonfire join code for the caller's master account.
+
+**Authorization:** Master User token
+
+**Response `200 OK`:**
+```json
+{
+  "groupId": "4f5c9e2b",
+  "bonfireCode": "B7F8XA",
+  "members": []
+}
+```
+
+---
+
+### `POST /plugins/profiles/bonfire/join`
+
+Joins another master user's bonfire group using a 6-character bonfire join code. Note that this endpoint is rate limited to 3 failed attempts in 15 minutes per IP address.
+
+**Authorization:** Master User token
+
+**Request body:**
+```json
+{
+  "code": "B7F8XA"
+}
+```
+
+**Response `200 OK`:**
+```json
+{
+  "message": "Successfully joined Bonfire group.",
+  "ownerName": "FriendMaster"
+}
+```
+
+---
+
+### `POST /plugins/profiles/bonfire/kick`
+
+Kicks a member master account from the caller's bonfire group.
+
+**Authorization:** Master User token
+
+**Request body:**
+```json
+{
+  "memberId": "a90f11cb-42a1-432d-94bb-97cc2d42ef8b"
+}
+```
+
+**Response `200 OK`** on success.
+
+---
+
+### `POST /plugins/profiles/bonfire/leave`
+
+Leaves the bonfire group that the caller has joined.
+
+**Authorization:** Master User token
+
+**Response `200 OK`** on success.
+
+---
+
+### `POST /plugins/profiles/bonfire/delete-group`
+
+Deletes/dissolves the bonfire group owned by the caller.
+
+**Authorization:** Master User token
+
+**Response `200 OK`** on success.
 
 ---
 
