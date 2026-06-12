@@ -108,9 +108,9 @@ namespace Jellyfin.Profiles
                 var html = File.ReadAllText(indexPath);
 
                 bool hasBody = html.Contains(BodyMarker, StringComparison.Ordinal);
-                bool hasHeadInCorrectPlace = html.Contains("<head>\n" + HeadScript, StringComparison.Ordinal);
+                bool hasHead = html.Contains(HeadMarker, StringComparison.Ordinal);
 
-                if (hasBody && hasHeadInCorrectPlace)
+                if (hasBody && hasHead)
                 {
                     _logger.LogDebug(
                         "ProfilesPlugin: Scripts already correctly present in {Path} — no changes made.",
@@ -152,14 +152,14 @@ namespace Jellyfin.Profiles
                 // ── 3. Inject new early-hide script right after <head> ──────────
                 html = html.Replace(
                     "<head>",
-                    "<head>\n" + HeadScript,
+                    "<head>" + Environment.NewLine + HeadScript,
                     StringComparison.OrdinalIgnoreCase);
                 changed = true;
 
                 // ── 4. Inject new deferred client script before </body> ──────────
                 html = html.Replace(
                     "</body>",
-                    BodyScriptTag + "\n</body>",
+                    BodyScriptTag + Environment.NewLine + "</body>",
                     StringComparison.OrdinalIgnoreCase);
                 changed = true;
 
