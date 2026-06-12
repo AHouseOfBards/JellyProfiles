@@ -13,6 +13,7 @@
         isManageMode: false,
         masterPin: null,
         cachedProfiles: [],
+        currentProfiles: [],
         inactivityTimer: null,
         inactivityEventHandlers: null,
         _pageRevealed: false,
@@ -526,6 +527,11 @@
             document.body.classList.add('profiles-no-scroll');
             document.documentElement.classList.add('profiles-no-scroll');
 
+            // Keep a stable reference to the profiles being shown so that
+            // back-navigation (PIN cancel, master PIN cancel, promptMasterPinEntry)
+            // can re-show the grid without depending on cachedProfiles, which is
+            // intentionally cleared after first use.
+            this.currentProfiles = profiles;
             this.renderOverlayContent(overlay, profiles);
 
             // Reveal the page NOW — the overlay covers the home screen so there
@@ -927,12 +933,12 @@
             document.getElementById('pin-cancel-btn').addEventListener('click', () => {
                 if (verifyController) verifyController.abort();
                 this.isManageMode = false;
-                this.showProfileOverlay(this.cachedProfiles);
+                this.showProfileOverlay(this.currentProfiles);
             });
         },
 
         promptMasterPinEntry: function (actionType, callback) {
-            const masterProfile = this.cachedProfiles.find(p => p.isMaster);
+            const masterProfile = this.currentProfiles.find(p => p.isMaster && !p.isBonfire);
             if (!masterProfile) return;
 
             const content = document.querySelector('.profiles-modal-content');
@@ -1051,7 +1057,7 @@
 
             document.getElementById('master-pin-cancel-btn').addEventListener('click', () => {
                 if (verifyController) verifyController.abort();
-                this.showProfileOverlay(this.cachedProfiles);
+                this.showProfileOverlay(this.currentProfiles);
             });
         },
 
@@ -1900,14 +1906,14 @@
                 return res.json();
             })
             .then(status => {
-                this.renderBonfireStatus(container, status, apiClient, masterToken);
+                this.renderBonfireStatus(container, content, status, apiClient, masterToken);
             })
             .catch(err => {
                 container.innerHTML = `<div style="color: #ff6b6b; font-size: 0.9rem;">Failed to load Bonfire status: ${err.message}</div>`;
             });
         },
 
-        renderBonfireStatus: function (container, status, apiClient, masterToken) {
+        renderBonfireStatus: function (container, content, status, apiClient, masterToken) {
             if (status.isOwner) {
                 container.innerHTML = `
                     <div style="margin-bottom: 12px;">
@@ -1940,9 +1946,10 @@
                                 body: JSON.stringify({ memberId: mId })
                             })
                             .then(res => {
-                                if (res.ok) this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                                if (res.ok) this.loadBonfireStatus(content, apiClient, masterToken);
                                 else alert('Failed to kick member.');
-                            });
+                            })
+                            .catch(err => alert('Error: ' + err.message));
                         }
                     });
                 });
@@ -1954,9 +1961,10 @@
                             headers: this.getAuthHeaders(masterToken)
                         })
                         .then(res => {
-                            if (res.ok) this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                            if (res.ok) this.loadBonfireStatus(content, apiClient, masterToken);
                             else alert('Failed to delete group.');
-                        });
+                        })
+                        .catch(err => alert('Error: ' + err.message));
                     }
                 });
 
@@ -1979,9 +1987,10 @@
                             headers: this.getAuthHeaders(masterToken)
                         })
                         .then(res => {
-                            if (res.ok) this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                            if (res.ok) this.loadBonfireStatus(content, apiClient, masterToken);
                             else alert('Failed to leave group.');
-                        });
+                        })
+                        .catch(err => alert('Error: ' + err.message));
                     }
                 });
 
@@ -2014,9 +2023,10 @@
                         headers: this.getAuthHeaders(masterToken)
                     })
                     .then(res => {
-                        if (res.ok) this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
-                        else alert('Failed to generate code.');
-                    });
+                        if (res.ok) this.loadBonfireStatus(content, apiClient, masterToken);
+                        else return res.text().then(text => { throw new Error(text); });
+                    })
+                    .catch(err => alert('Failed to generate code: ' + err.message));
                 });
 
                 const joinInput = container.querySelector('#bonfire-join-input');
@@ -2043,7 +2053,7 @@
                             return;
                         }
                         if (!res.ok) return res.text().then(text => { throw new Error(text); });
-                        this.loadBonfireStatus(container.closest('.create-profile-container'), apiClient, masterToken);
+                        this.loadBonfireStatus(content, apiClient, masterToken);
                     })
                     .catch(err => {
                         errDiv.textContent = err.message || 'Failed to join group.';

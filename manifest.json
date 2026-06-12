@@ -8,6 +8,14 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.28.0",
+        "changelog": "Fix: Manage Profiles button silently did nothing when the master user had a PIN set (promptMasterPinEntry was reading from the already-cleared cachedProfiles). Introduced currentProfiles to hold the live displayed list, fixing PIN-cancel and master-PIN-cancel 'no profiles' regression too. Fix: Bonfire Generate/Join/Kick/Leave/Delete buttons failed silently because they relied on container.closest() to resolve the modal root after an async fetch — content is now passed directly through the render chain. Added .catch() handlers to all bonfire action fetches.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.28/Jellyfin.Profiles.zip",
+        "checksum": "placeholder-checksum-to-be-replaced",
+        "timestamp": "2026-06-12T11:15:00Z"
+      },
+      {
         "version": "1.0.27.0",
         "changelog": "Fix: KickBonfireMember now correctly rejects sub-profile callers with 401. loadBonfireStatus now handles expired session tokens (401) before parsing the response. Bonfire card in Manage Profiles is now only shown to the local master user, not Bonfire-linked remote masters. GET /devices auth corrected to Master User token in the API guide. README device log description clarified as server-wide.",
         "targetAbi": "10.11.0.0",
