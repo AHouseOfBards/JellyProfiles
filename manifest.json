@@ -12,7 +12,7 @@
         "changelog": "Fix: Bonfire join code generation and membership check matching. Fix: Manage profiles button click logic and session cache switch. Fix: Sidebar avatar 'P' bug by dynamically updating instead of returning early and resolving default user fallback. Optimization: Throttled device activity logging (15m lockout) to drastically minimize database writes and server load. Optimization: Added static expiration pruning loop to BonfireRateLimiter dictionary to prevent unbounded memory growth. Feature: Custom profile picture file uploading, client-side canvas auto-resizing (96x96), TV platform URL fallback support, and picture removal option.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.29/Jellyfin.Profiles.zip",
-        "checksum": "f22b5a01fdbab8c5b23c0c2820559ace",
+        "checksum": "79c472e26add58c8eb26bae3fabe00d9",
         "timestamp": "2026-06-12T14:40:00Z"
       },
       {
