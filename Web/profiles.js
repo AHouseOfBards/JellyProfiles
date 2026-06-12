@@ -1113,11 +1113,11 @@
                         <div class="form-group">
                             <label>Allowed Devices (Optional)</label>
                             <div class="devices-dropdown-container" style="position: relative;">
-                                <div id="create-devices-dropdown-trigger" class="devices-dropdown-trigger" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; user-select: none; font-size: 0.95rem;">
+                                <div id="create-devices-dropdown-trigger" class="devices-dropdown-trigger" tabindex="0">
                                     <span id="create-devices-dropdown-selected-text">All Devices Allowed</span>
                                     <span style="font-size: 0.8rem; opacity: 0.7;">▼</span>
                                 </div>
-                                <div id="create-devices-dropdown-list" class="devices-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: #202020; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; max-height: 250px; overflow-y: auto; z-index: 10000; margin-top: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                                <div id="create-devices-dropdown-list" class="devices-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10000; margin-top: 4px;">
                                     ${devices && devices.length > 0 ? devices.map(dev => {
                                         return `
                                             <div class="device-dropdown-item" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05);">
@@ -1241,11 +1241,24 @@
                         e.stopPropagation();
                         createList.style.display = createList.style.display === 'none' ? 'block' : 'none';
                     });
+                    createTrigger.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            createTrigger.click();
+                        }
+                    });
                     document.addEventListener('click', () => {
                         createList.style.display = 'none';
                     });
                     createList.addEventListener('click', (e) => {
                         e.stopPropagation();
+                    });
+                    createList.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' && e.target.type === 'checkbox') {
+                            e.preventDefault();
+                            e.target.checked = !e.target.checked;
+                            e.target.dispatchEvent(new Event('change'));
+                        }
                     });
                 }
 
@@ -1256,9 +1269,9 @@
                         if (checked.length === 0) {
                             txt.textContent = 'All Devices Allowed';
                         } else if (checked.length === 1) {
-                            txt.textContent = '1 Device Restricted';
+                            txt.textContent = '1 Device Allowed';
                         } else {
-                            txt.textContent = `${checked.length} Devices Restricted`;
+                            txt.textContent = `${checked.length} Devices Allowed`;
                         }
                     }
                 };
@@ -1432,11 +1445,11 @@
                         <div class="form-group">
                             <label>Allowed Devices (Optional)</label>
                             <div class="devices-dropdown-container" style="position: relative;">
-                                <div id="devices-dropdown-trigger" class="devices-dropdown-trigger" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; user-select: none; font-size: 0.95rem;">
+                                <div id="devices-dropdown-trigger" class="devices-dropdown-trigger" tabindex="0">
                                     <span id="devices-dropdown-selected-text">All Devices Allowed</span>
                                     <span style="font-size: 0.8rem; opacity: 0.7;">▼</span>
                                 </div>
-                                <div id="devices-dropdown-list" class="devices-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: #202020; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; max-height: 250px; overflow-y: auto; z-index: 10000; margin-top: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                                <div id="devices-dropdown-list" class="devices-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10000; margin-top: 4px;">
                                     ${devices && devices.length > 0 ? devices.map(dev => {
                                         const isChecked = profile.allowedDeviceIds && profile.allowedDeviceIds.includes(dev.deviceId);
                                         return `
@@ -1574,11 +1587,24 @@
                         e.stopPropagation();
                         editList.style.display = editList.style.display === 'none' ? 'block' : 'none';
                     });
+                    editTrigger.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            editTrigger.click();
+                        }
+                    });
                     document.addEventListener('click', () => {
                         editList.style.display = 'none';
                     });
                     editList.addEventListener('click', (e) => {
                         e.stopPropagation();
+                    });
+                    editList.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' && e.target.type === 'checkbox') {
+                            e.preventDefault();
+                            e.target.checked = !e.target.checked;
+                            e.target.dispatchEvent(new Event('change'));
+                        }
                     });
                 }
 
@@ -1589,9 +1615,9 @@
                         if (checked.length === 0) {
                             txt.textContent = 'All Devices Allowed';
                         } else if (checked.length === 1) {
-                            txt.textContent = '1 Device Restricted';
+                            txt.textContent = '1 Device Allowed';
                         } else {
-                            txt.textContent = `${checked.length} Devices Restricted`;
+                            txt.textContent = `${checked.length} Devices Allowed`;
                         }
                     }
                 };
@@ -2880,6 +2906,52 @@
                 @keyframes fadeIn {
                     from { opacity: 0; transform: scale(0.96) translateY(10px); }
                     to { opacity: 1; transform: scale(1) translateY(0); }
+                }
+
+                /* Devices Dropdown Styles */
+                .devices-dropdown-trigger {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 10px 14px;
+                    background: rgba(0,0,0,0.2);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 6px;
+                    cursor: pointer;
+                    user-select: none;
+                    font-size: 0.95rem;
+                    transition: border-color 0.2s, box-shadow 0.2s;
+                }
+                .devices-dropdown-trigger:focus {
+                    outline: none;
+                    border-color: #00a4dc !important;
+                    box-shadow: 0 0 10px rgba(0, 164, 220, 0.5) !important;
+                }
+                .devices-dropdown-trigger:hover {
+                    background: rgba(255,255,255,0.05);
+                }
+                .devices-dropdown-list {
+                    background: #202020;
+                    border: 1px solid rgba(255,255,255,0.15);
+                    border-radius: 6px;
+                    max-height: 250px;
+                    overflow-y: auto;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+                }
+                .device-dropdown-item {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 8px 12px;
+                    border-bottom: 1px solid rgba(255,255,255,0.05);
+                    transition: background 0.2s;
+                }
+                .device-dropdown-item:hover, .device-dropdown-item:focus-within {
+                    background: rgba(255,255,255,0.03);
+                }
+                .device-delete-btn:focus {
+                    outline: none;
+                    background: rgba(255,107,107,0.2) !important;
                 }
             `;
             document.head.appendChild(style);
