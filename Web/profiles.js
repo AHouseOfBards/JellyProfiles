@@ -1597,6 +1597,10 @@
             const headerContainer = this._findHeaderContainer();
 
             if (headerContainer) {
+                if (bubble && bubble.classList.contains('profiles-floating-fallback')) {
+                    bubble.remove();
+                    bubble = null;
+                }
                 if (bubble) {
                     if (!document.contains(bubble)) {
                         bubble.remove();
@@ -1619,6 +1623,10 @@
                 // and insert next to it.  Works for ANY theme regardless of class names.
                 const anchor = this._findGeometricHeaderAnchor();
                 if (anchor) {
+                    if (bubble && bubble.classList.contains('profiles-floating-fallback')) {
+                        bubble.remove();
+                        bubble = null;
+                    }
                     if (bubble) {
                         if (!document.contains(bubble)) {
                             bubble.remove(); bubble = null;

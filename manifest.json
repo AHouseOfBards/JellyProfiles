@@ -8,6 +8,14 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.20.0",
+        "changelog": "Fix: Resolved race conditions and button state transitions. Wiped out and rebuilt fallback bubbles if the header container or geometric layout anchor is subsequently resolved during navigation ticks, ensuring that the clean, themed header icon is always rendered instead of the fallback pill whenever the DOM completes loading.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.20/Jellyfin.Profiles.zip",
+        "checksum": "placeholder",
+        "timestamp": "2026-06-12T09:45:00Z"
+      },
+      {
         "version": "1.0.19.0",
         "changelog": "Fix: Resolved home screen profile gate loading inconsistency on first-time login by clearing session/local storage on the login and selectserver views. Improved the fallback button's overlap prevention by implementing a dynamic corner-detection algorithm (checking Top-Right, Top-Left, Bottom-Left, and Bottom-Right for overlapping interactive screen elements).",
         "targetAbi": "10.11.0.0",
