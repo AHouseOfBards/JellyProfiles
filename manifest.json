@@ -12,7 +12,7 @@
         "changelog": "Security: Added brute-force PIN rate-limiting and session token clearing on logout. UX: Prevented inactivity locks during video playback. Performance: Saved uploaded profile avatars to server disk instead of configuration strings. Admin: Added per-user profile limits and switch audit logs.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/AHouseOfBards/Bonfire-JellyProfiles/releases/download/v1.0.39/Jellyfin.Profiles.zip",
-        "checksum": "placeholder",
+        "checksum": "e3e13e67f59d50320180bc60e8664af3",
         "timestamp": "2026-06-12T20:52:00Z"
       },
       {
