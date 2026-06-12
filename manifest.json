@@ -8,6 +8,22 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.42.0",
+        "changelog": "Fix: Resolve race conditions in client-side PIN entry/submits and backend configuration writes/saves by introducing strict state check locks and thread-safe lock scopes.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/Bonfire-JellyProfiles/releases/download/v1.0.42/Jellyfin.Profiles.zip",
+        "checksum": "8cb9f3f80fdf8001b11017e336f917e9",
+        "timestamp": "2026-06-12T22:00:00Z"
+      },
+      {
+        "version": "1.0.41.0",
+        "changelog": "Fix: Add switches and validation locking to prevent duplicate PIN entry submissions, and propagate dynamic error text from the server.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/Bonfire-JellyProfiles/releases/download/v1.0.41/Jellyfin.Profiles.zip",
+        "checksum": "703ba37990de998454f41ea103e66daa",
+        "timestamp": "2026-06-12T21:52:00Z"
+      },
+      {
         "version": "1.0.40.0",
         "changelog": "Fix: Prevent profile selector from redirecting immediately after reload due to race condition.",
         "targetAbi": "10.11.0.0",
