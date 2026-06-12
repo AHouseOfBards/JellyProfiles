@@ -28,10 +28,10 @@ Adds multi-user profile switching to Jellyfin. A single account can have up to f
 3. Go to **Plugins → Catalog**, find **Profiles Management**, and click **Install**
 4. Restart your Jellyfin server when prompted
 
-On restart the plugin automatically injects its client script into Jellyfin's `index.html` so profiles load for all users with no further setup.
+Once the server restarts, the plugin is active and will automatically load on all compatible clients with no further setup.
 
 > [!NOTE]
-> **Docker users with a read-only web directory:** If the web directory is not writable by the Jellyfin container, the injection will fail silently and a copy-pasteable fix command will be written to the Jellyfin server log. Check **Dashboard → Logs** after the first restart.
+> **Docker users:** If your container's web directory is read-only, the plugin may not load automatically. If this happens, check your Jellyfin logs for a permission fix command.
 
 ---
 
@@ -53,20 +53,16 @@ On restart the plugin automatically injects its client script into Jellyfin's `i
 
 ## Client Compatibility
 
-**Works out of the box:**
-- Jellyfin Web (desktop browsers — Chrome, Firefox, Safari, Edge)
-- Jellyfin Web (mobile browsers — iOS Safari, Android Chrome)
-- Jellyfin (official Android app — renders the Jellyfin web UI internally)
+**Compatible Clients:**
+- Jellyfin Web (desktop & mobile browsers)
+- Official Jellyfin Android App
 - Jellyfin Media Player (Windows, macOS, Linux)
 
-**Requires developer integration to support profiles:**
-- Swiftfin (iOS / tvOS — fully native, does not use the web UI)
-- Findroid (Android / Android TV — fully native, does not use the web UI)
+**Unsupported Clients (Requires native app updates):**
+- Swiftfin (iOS / tvOS)
+- Findroid (Android / Android TV)
 - Jellyfin for Roku
-- Infuse (iOS / tvOS / macOS — closed source, requires Firecore)
-- Any other native Jellyfin client
-
-> TV browsers (Samsung, LG, Fire TV, etc.) may work when accessing Jellyfin Web directly, but this is untested. Native TV apps listed above fall into the integration category.
+- Infuse (iOS / tvOS / macOS)
 
 ---
 
