@@ -340,6 +340,7 @@
                 if (hash.includes('login') || hash.includes('selectserver') || path.includes('login') || path.includes('selectserver')) {
                     localStorage.removeItem(this.config.masterStorageKey);
                     sessionStorage.removeItem(this.config.activeSessionKey);
+                    sessionStorage.removeItem('jellyfin_profiles_active_info');
                 }
                 return;
             }
@@ -372,6 +373,7 @@
             console.warn("ProfilesPlugin: Master session expired or invalid. Redirecting to login.");
             localStorage.removeItem(this.config.masterStorageKey);
             sessionStorage.removeItem(this.config.activeSessionKey);
+            sessionStorage.removeItem('jellyfin_profiles_active_info');
             
             const apiClient = ApiClient;
             if (apiClient) {
@@ -584,6 +586,7 @@
         lockActiveProfile: function () {
             this.stopInactivityTimer();
             sessionStorage.removeItem(this.config.activeSessionKey);
+            sessionStorage.removeItem('jellyfin_profiles_active_info');
             const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
             if (masterState) {
                 this.updateStoredCredentials(masterState.masterToken, masterState.masterUserId);
@@ -1013,6 +1016,16 @@
                 }
 
                 sessionStorage.setItem(this.config.activeSessionKey, activeProfileToken);
+                
+                const profile = this.cachedProfiles.find(p => this.normalizeGuid(p.profileUserId) === this.normalizeGuid(profileId));
+                if (profile) {
+                    sessionStorage.setItem('jellyfin_profiles_active_info', JSON.stringify({
+                        name: profile.profileName,
+                        color: profile.avatarColor,
+                        initial: profile.avatarInitial
+                    }));
+                }
+
                 this.updateStoredCredentials(activeProfileToken, jellyfinUserId);
                 apiClient.setAuthenticationInfo(activeProfileToken, jellyfinUserId);
 
@@ -1746,6 +1759,24 @@
             b.className = 'paper-icon-button-light headerButton';
             b.title = 'Switch Profile';
             b.setAttribute('aria-label', 'Switch Profile');
+
+            const activeInfoStr = sessionStorage.getItem('jellyfin_profiles_active_info');
+            if (activeInfoStr) {
+                try {
+                    const activeInfo = JSON.parse(activeInfoStr);
+                    if (activeInfo && activeInfo.initial && activeInfo.color) {
+                        b.innerHTML = `
+                            <div class="profiles-header-avatar" style="background-color: ${activeInfo.color}; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); border: 1.5px solid rgba(255,255,255,0.25); box-sizing: border-box;">
+                                ${activeInfo.initial}
+                            </div>
+                        `;
+                        return b;
+                    }
+                } catch (e) {
+                    console.error("Failed to parse active profile info:", e);
+                }
+            }
+
             b.innerHTML = '<span class="material-icons">people</span>';
             return b;
         },
@@ -1757,7 +1788,25 @@
             b.className = 'profiles-floating-fallback';
             b.title = 'Switch Profile';
             b.setAttribute('aria-label', 'Switch Profile');
-            // Icon + label so it's recognisable at any screen size.
+
+            const activeInfoStr = sessionStorage.getItem('jellyfin_profiles_active_info');
+            if (activeInfoStr) {
+                try {
+                    const activeInfo = JSON.parse(activeInfoStr);
+                    if (activeInfo && activeInfo.initial && activeInfo.color) {
+                        b.innerHTML = `
+                            <div class="profiles-header-avatar" style="background-color: ${activeInfo.color}; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2); box-sizing: border-box; margin-right: 6px;">
+                                ${activeInfo.initial}
+                            </div>
+                            <span>${activeInfo.name}</span>
+                        `;
+                        return b;
+                    }
+                } catch (e) {
+                    console.error("Failed to parse active profile info:", e);
+                }
+            }
+
             b.innerHTML = '<span class="material-icons" aria-hidden="true" style="font-size:1.1rem;vertical-align:middle;margin-right:5px">people</span>Profiles';
             return b;
         },
@@ -1787,6 +1836,7 @@
                     // the current page.  This eliminates the entire reload-based white
                     // flash that clicking this button previously caused.
                     sessionStorage.removeItem(this.config.activeSessionKey);
+                    sessionStorage.removeItem('jellyfin_profiles_active_info');
                     this.updateStoredCredentials(masterState.masterToken, masterState.masterUserId);
                     ApiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
 
@@ -1980,7 +2030,7 @@
                 /* This only appears when header injection fails entirely.    */
                 #profiles-floating-bubble.profiles-floating-fallback {
                     position: fixed;
-                    bottom: 24px; right: 24px; top: auto;
+                    bottom: 24px; left: 24px; right: auto; top: auto;
                     z-index: 9999;
                     background: var(--theme-accent-color, #00a4dc);
                     color: #fff; padding: 8px 18px; border-radius: 999px;
@@ -2099,7 +2149,8 @@
                 /* Mobile Responsiveness Media Queries */
                 @media (max-width: 600px) {
                     #profiles-floating-bubble.profiles-floating-fallback {
-                        right: 12px;
+                        left: 12px;
+                        right: auto;
                         bottom: 12px;
                     }
                 }

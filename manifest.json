@@ -8,6 +8,14 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.18.0",
+        "changelog": "Fix: Added active profile indicator to the home screen switch button (displaying the profile's custom color avatar and initial). Fixed overlapping and positioning issues by moving the floating fallback button to the bottom-left corner and updating mobile responsiveness.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.18/Jellyfin.Profiles.zip",
+        "checksum": "placeholder",
+        "timestamp": "2026-06-12T09:34:00Z"
+      },
+      {
         "version": "1.0.17.0",
         "changelog": "Fix: Resolved Android and password manager login conflicts. Changed PIN entry fields from password type to text type with autofill-disable attributes, and applied CSS text-masking (-webkit-text-security). This prevents Google Autofill and other password managers from attempting to autofill master Jellyfin passwords into the PIN fields while keeping the PIN characters masked.",
         "targetAbi": "10.11.0.0",
