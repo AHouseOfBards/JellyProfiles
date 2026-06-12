@@ -334,6 +334,9 @@
                 } else if (currentToken !== masterState.masterToken && !this.isProfileSessionActive()) {
                     this.updateStoredCredentials(masterState.masterToken, masterState.masterUserId);
                     apiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
+                    // Hide current page instantly so there is no visible frame
+                    // between old page unloading and new page's head script running.
+                    document.documentElement.style.cssText = 'opacity:0;background:#101010';
                     localStorage.setItem(this.config.switchingKey, '1');
                     window.location.reload();
                 }
@@ -925,6 +928,9 @@
                 apiClient.setAuthenticationInfo(activeProfileToken, jellyfinUserId);
 
                 this.removeProfileOverlay();
+                // Hide current page instantly — closes the gap between old
+                // page unloading and new page's head script hiding it.
+                document.documentElement.style.cssText = 'opacity:0;background:#101010';
                 localStorage.setItem(this.config.switchingKey, '1');
                 window.location.reload();
             })
@@ -1583,6 +1589,8 @@
                     sessionStorage.removeItem(this.config.activeSessionKey);
                     this.updateStoredCredentials(masterState.masterToken, masterState.masterUserId);
                     ApiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
+                    // Hide current page instantly before reload.
+                    document.documentElement.style.cssText = 'opacity:0;background:#101010';
                     localStorage.setItem(this.config.switchingKey, '1');
                     window.location.reload();
                 } else {

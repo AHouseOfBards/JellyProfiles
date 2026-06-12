@@ -8,6 +8,14 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.11.0",
+        "changelog": "Fix: eliminated remaining flash during profile switch page reload. The current page is now hidden instantly (opacity 0) before window.location.reload() fires at all three switch sites, closing the gap between the old page unloading and the new page's early-hide head script taking effect. Combined with the v1.0.10 head script, the full reload is now seamless — dark on both sides of the navigation with a smooth fade-in when the home screen or gate is ready.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.11/Jellyfin.Profiles.zip",
+        "checksum": "187fcd72031527853d0fd94779fc18ef",
+        "timestamp": "2026-06-12T00:34:00Z"
+      },
+      {
         "version": "1.0.10.0",
         "changelog": "Fix: eliminated the CSS flash/flicker during profile switches. An inline early-hide script injected into <head> now sets html opacity to 0 before React renders on any reload triggered by a profile switch, and profiles.js smoothly fades the page back in once the gate or home screen is ready. The 4-second failsafe restores visibility if profiles.js fails to load.",
         "targetAbi": "10.11.0.0",
