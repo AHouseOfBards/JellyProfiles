@@ -8,6 +8,14 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.31.0",
+        "changelog": "Fix: Prevent keydown event propagation/re-triggering from the Jellyfin login screen automatically selecting and logging into the first profile card.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.31/Jellyfin.Profiles.zip",
+        "checksum": "",
+        "timestamp": "2026-06-12T15:18:00Z"
+      },
+      {
         "version": "1.0.30.0",
         "changelog": "Fix: device dropdown undefined field serialization issue for allowed devices. Fix: Bonfire grouping modal to show host and join controls concurrently. UX: changed header title from My Home to Your Bonfire. Rename bonfire manage card to Bonfire Grouping.",
         "targetAbi": "10.11.0.0",

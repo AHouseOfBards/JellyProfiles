@@ -687,6 +687,7 @@
         showProfileOverlay: function (profiles) {
             // Always stop the inactivity timer when showing the profile selector
             this.stopInactivityTimer();
+            this._overlayMountTime = Date.now();
 
             const skinHeader = document.querySelector('.skinHeader');
             if (skinHeader) skinHeader.style.display = 'none';
@@ -998,6 +999,11 @@
             // Support D-pad Enter/Space selection on focused profile cards
             overlay.addEventListener('keydown', (e) => {
                 if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('profile-card')) {
+                    // Prevent accidental selection from propagated keydown events during login
+                    if (Date.now() - (this._overlayMountTime || 0) < 350) {
+                        e.preventDefault();
+                        return;
+                    }
                     e.preventDefault();
                     e.target.click();
                 }
