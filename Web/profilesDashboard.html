@@ -142,9 +142,9 @@
                     page.querySelectorAll('.reset-pin-btn').forEach(function (btn) {
                         btn.addEventListener('click', function () {
                             const profileId = btn.getAttribute('data-id');
-                            if (confirm('Are you sure you want to reset and clear the PIN for this profile?')) {
+                            Dashboard.confirm('Are you sure you want to reset and clear the PIN for this profile?', 'Reset PIN').then(function () {
                                 resetPin(page, profileId);
-                            }
+                            });
                         });
                     });
 
@@ -183,7 +183,7 @@
                     }).catch(function (err) {
                         console.error("Failed to update plugin configuration:", err);
                         Dashboard.hideLoadingMsg();
-                        alert("Failed to save settings.");
+                        Dashboard.alert({ message: 'Failed to save settings.', title: 'Error' });
                     });
                 });
             }
