@@ -387,6 +387,18 @@
         },
 
         fetchAndRenderProfiles: function (apiClient, masterUserId, masterToken) {
+            // Use the pre-fetched cache for an instant, flash-free overlay.
+            // The cache is populated in the background by _prefetchProfiles() while
+            // the user is on the home screen.  Clear it after use so the next call
+            // always gets fresh data (profile list may have changed server-side).
+            if (this.cachedProfiles && this.cachedProfiles.length) {
+                const profiles = this.cachedProfiles;
+                this.cachedProfiles = [];
+                this._profilePrefetchPending = false;
+                this.showProfileOverlay(profiles);
+                return;
+            }
+
             const url = apiClient.getUrl(`plugins/profiles/list`);
             
             fetch(url, {
@@ -423,13 +435,17 @@
             const skinHeader = document.querySelector('.skinHeader');
             if (skinHeader) skinHeader.style.display = 'none';
 
-            const viewHome = document.getElementById('view-home');
-            if (viewHome) viewHome.style.filter = 'blur(25px)';
+            // Do NOT apply filter:blur to #view-home — it triggers a GPU compositing
+            // layer creation which causes a one-frame white flash on first paint.
+            // The overlay's solid-dark background makes the blur redundant anyway.
 
             let overlay = document.getElementById('profiles-gate-overlay');
             if (!overlay) {
                 overlay = document.createElement('div');
                 overlay.id = 'profiles-gate-overlay';
+                // Start at opacity 0 so the browser creates the compositing layer
+                // silently.  We fade it in via rAF once it exists in the DOM.
+                overlay.style.opacity = '0';
                 document.body.appendChild(overlay);
             }
 
@@ -445,12 +461,18 @@
             this._viewShowFired = true; // overlay is rendered; treat this as view-ready
             this._revealPage();
 
+            // Two rAF calls: first lets the browser paint with opacity:0 (compositing
+            // layer created silently), second begins the CSS opacity transition.
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                overlay.style.opacity = ''; // CSS transition takes over
+            }));
+
             // Auto-focus the first interactive element so TV/keyboard users
             // don't need to Tab before they can navigate the profile grid.
             setTimeout(() => {
                 const first = overlay.querySelector('[tabindex="0"], button, input');
                 if (first) first.focus();
-            }, 50);
+            }, 100);
         },
 
         removeProfileOverlay: function () {
@@ -464,8 +486,7 @@
             const skinHeader = document.querySelector('.skinHeader');
             if (skinHeader) skinHeader.style.display = '';
 
-            const viewHome = document.getElementById('view-home');
-            if (viewHome) viewHome.style.filter = '';
+            // Note: view-home blur no longer applied (removed in v1.0.14)
         },
 
         // ─── Inactivity Lockout Timer ─────────────────────────────────────────────
@@ -957,9 +978,16 @@
                 this.updateStoredCredentials(activeProfileToken, jellyfinUserId);
                 apiClient.setAuthenticationInfo(activeProfileToken, jellyfinUserId);
 
-                this.removeProfileOverlay();
-                // Hide current page instantly — closes the gap between old
-                // page unloading and new page's head script hiding it.
+                // Keep the overlay visible through the reload — removing it first
+                // would expose the home screen for a frame before opacity:0 kicks in.
+                // The reload will naturally destroy the overlay on the new page.
+                // Transitioning it to solid black blends with the new page's dark state.
+                const overlay = document.getElementById('profiles-gate-overlay');
+                if (overlay) {
+                    overlay.style.transition = 'background 0.12s ease';
+                    overlay.style.background = '#101010';
+                }
+                // Hide everything else instantly.
                 document.documentElement.style.cssText = 'opacity:0;background:#101010';
                 localStorage.setItem(this.config.switchingKey, '1');
                 window.location.reload();
@@ -1571,6 +1599,44 @@
             }
 
             this._bubbleShow(bubble);
+
+            // Pre-fetch the profile list while the button is visible so the overlay
+            // appears instantly (no network wait) when the user clicks it.
+            if (viewType === 'home' && !this._profilePrefetchPending) {
+                this._prefetchProfiles();
+            }
+        },
+
+        // Fetches /list using the master token and caches the result in this.cachedProfiles.
+        // Called proactively by evaluateFloatingBubbleVisibility; the cached result is
+        // consumed by fetchAndRenderProfiles for instant, flash-free overlay display.
+        _prefetchProfiles: function () {
+            if (this._profilePrefetchPending || (this.cachedProfiles && this.cachedProfiles.length)) return;
+            const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
+            if (!masterState || !masterState.masterToken) return;
+
+            this._profilePrefetchPending = true;
+            const url = ApiClient.getUrl('plugins/profiles/list');
+            fetch(url, { headers: this.getAuthHeaders(masterState.masterToken) })
+                .then(res => {
+                    if (!res.ok) throw new Error();
+                    return res.json();
+                })
+                .then(profiles => {
+                    const masterUserId = ApiClient.getCurrentUserId();
+                    this.cachedProfiles = (profiles || []).map(p => ({
+                        profileUserId: p.profileUserId || p.ProfileUserId,
+                        profileName: p.profileName || p.ProfileName,
+                        avatarInitial: p.avatarInitial || p.AvatarInitial,
+                        avatarColor: p.avatarColor || p.AvatarColor,
+                        requiresPin: p.requiresPin !== undefined ? p.requiresPin : p.RequiresPin,
+                        isMaster: p.isMaster !== undefined ? p.isMaster : p.IsMaster,
+                        lockoutMinutes: p.lockoutMinutes !== undefined ? p.lockoutMinutes : (p.LockoutMinutes !== undefined ? p.LockoutMinutes : 5),
+                        maxSubProfiles: p.maxSubProfiles !== undefined ? p.maxSubProfiles : (p.MaxSubProfiles !== undefined ? p.MaxSubProfiles : 5)
+                    }));
+                    this._profilePrefetchPending = false;
+                })
+                .catch(() => { this._profilePrefetchPending = false; });
         },
 
         // ── Header-container detection ───────────────────────────────────────────
@@ -1671,21 +1737,31 @@
                 e.preventDefault();
                 e.stopPropagation();
 
-                // Immediate visual feedback so the user knows the tap/click registered.
-                // The page will reload momentarily; this prevents a confusing dead-looking button.
                 bubble.disabled = true;
                 bubble.style.opacity = '0.45';
                 bubble.style.cursor = 'wait';
 
                 const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
                 if (masterState && masterState.masterToken) {
+                    // Switch back to master credentials in memory.
+                    // No page reload — we show the profile selector directly on top of
+                    // the current page.  This eliminates the entire reload-based white
+                    // flash that clicking this button previously caused.
                     sessionStorage.removeItem(this.config.activeSessionKey);
                     this.updateStoredCredentials(masterState.masterToken, masterState.masterUserId);
                     ApiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
-                    // Hide current page instantly before reload.
-                    document.documentElement.style.cssText = 'opacity:0;background:#101010';
-                    localStorage.setItem(this.config.switchingKey, '1');
-                    window.location.reload();
+
+                    // Show the overlay.  If _prefetchProfiles() already ran in the
+                    // background the cached data is used and the overlay is instant.
+                    this.interceptHomeAndShowProfiles();
+
+                    // Re-enable the button after the overlay has appeared so it is
+                    // ready if the user dismisses and re-opens the overlay.
+                    setTimeout(() => {
+                        bubble.disabled = false;
+                        bubble.style.opacity = '';
+                        bubble.style.cursor = '';
+                    }, 400);
                 } else {
                     // No master state found — restore button so the user can try again
                     bubble.disabled = false;
@@ -1734,11 +1810,11 @@
                 /* Overlay Glassmorphic Layout */
                 #profiles-gate-overlay {
                     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-                    background: radial-gradient(circle, rgba(20,20,20,0.85) 0%, rgba(10,10,10,0.98) 100%);
-                    backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
+                    background: radial-gradient(circle at 50% 40%, #1e1e2e 0%, #0d0d12 100%);
                     z-index: 99999; display: flex; align-items: center; justify-content: center;
                     color: #fff; font-family: 'Outfit', 'Inter', sans-serif;
                     overflow-y: auto; padding: 2rem 0; box-sizing: border-box;
+                    opacity: 1; transition: opacity 0.22s ease;
                 }
                 .profiles-modal-content {
                     text-align: center; max-width: 900px; width: 90%;

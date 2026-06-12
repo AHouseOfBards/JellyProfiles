@@ -8,6 +8,14 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.14.0",
+        "changelog": "Fix: Eliminated remaining white flashes during profile switching. (1) Clicking the Switch Profile button no longer triggers a page reload — the overlay is shown directly in-place, so there is zero reload flash. (2) Profile list is pre-fetched in the background while the button is visible, so the overlay appears instantly on click with no network wait. (3) After selecting a profile, the overlay stays visible and transitions to solid black before the reload fires, so the home screen is never exposed between overlay removal and opacity:0. (4) Removed backdrop-filter:blur from the overlay CSS, which was causing a GPU compositor white flash when the overlay element was first painted. The overlay now uses a solid dark gradient and fades in via double-requestAnimationFrame so the compositing layer is created silently.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.14/Jellyfin.Profiles.zip",
+        "checksum": "00000000000000000000000000000000",
+        "timestamp": "2026-06-12T01:28:00Z"
+      },
+      {
         "version": "1.0.13.0",
         "changelog": "Fix: white flash when opening the profile selector or after selecting a profile. _revealPage() is now gated on Jellyfin's viewshow event (fires after React renders the view) so the page is never faded in to a blank shell. When checkRoute() is about to show the gate overlay it skips the reveal entirely and lets showProfileOverlay() call it once the overlay is in the DOM — ensuring the page is always covered before it becomes visible.",
         "targetAbi": "10.11.0.0",
