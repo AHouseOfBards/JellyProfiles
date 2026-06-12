@@ -592,9 +592,9 @@ These endpoints are used to track and delete connected device history records.
 
 ### `GET /plugins/profiles/devices`
 
-Returns a list of all known/connected devices that have interacted with the Profiles plugin.
+Returns a list of all known devices that have interacted with the Profiles plugin. This list is server-wide — it covers devices from all users, not just the authenticated caller.
 
-**Authorization:** Any authenticated user token
+**Authorization:** Master User token
 
 **Response `200 OK`:**
 ```json

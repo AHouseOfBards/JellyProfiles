@@ -705,7 +705,7 @@
                             </div>
                         `).join('')}
                         
-                        ${this.isManageMode ? `
+                        ${this.isManageMode && profiles.some(p => p.isMaster && !p.isBonfire) ? `
                         <div class="profile-card action-bonfire" tabindex="0">
                             <div class="profile-avatar-container">
                                 <div class="profile-avatar" style="background: linear-gradient(135deg, #ff9900 0%, #ff5500 100%); display: flex; align-items: center; justify-content: center;">
@@ -1892,7 +1892,13 @@
 
             const statusUrl = apiClient.getUrl('plugins/profiles/bonfire/status');
             fetch(statusUrl, { headers: this.getAuthHeaders(masterToken) })
-            .then(res => res.json())
+            .then(res => {
+                if (res.status === 401) {
+                    this.handleSessionExpired();
+                    throw new Error('Unauthorized');
+                }
+                return res.json();
+            })
             .then(status => {
                 this.renderBonfireStatus(container, status, apiClient, masterToken);
             })

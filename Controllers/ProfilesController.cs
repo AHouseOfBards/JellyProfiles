@@ -1390,6 +1390,12 @@ namespace Jellyfin.Profiles.Controllers
             if (currentUserIdVal == null) return Unauthorized();
             Guid masterId = currentUserIdVal.Value;
 
+            var callerMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == masterId);
+            if (callerMapping != null && callerMapping.MasterUserId != masterId)
+            {
+                return Unauthorized("Only the master profile can manage Bonfire groups.");
+            }
+
             var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterId);
             if (group == null)
             {
