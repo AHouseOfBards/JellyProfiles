@@ -1057,6 +1057,7 @@
             overlay.querySelectorAll('.profile-card:not(.action-add-profile)').forEach(card => {
                 card.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    if (this._switchLock) return;
                     const profileId = card.getAttribute('data-id');
                     const profile = profiles.find(p => this.normalizeGuid(p.profileUserId) === this.normalizeGuid(profileId));
                     if (!profile) return;
@@ -1077,6 +1078,7 @@
             const addCard = overlay.querySelector('.action-add-profile');
             if (addCard) {
                 addCard.addEventListener('click', () => {
+                    if (this._switchLock) return;
                     const masterProfile = profiles.find(p => p.isMaster && !p.isBonfire);
                     const masterRequiresPin = masterProfile && masterProfile.requiresPin;
                     
@@ -1102,6 +1104,7 @@
             const bonfireCard = overlay.querySelector('.action-bonfire');
             if (bonfireCard) {
                 bonfireCard.addEventListener('click', () => {
+                    if (this._switchLock) return;
                     this.showBonfireModal();
                 });
             }
@@ -1110,6 +1113,7 @@
             const manageBtn = document.getElementById('profiles-toggle-manage-btn');
             if (manageBtn) {
                 manageBtn.addEventListener('click', () => {
+                    if (this._switchLock) return;
                     if (this.isManageMode) {
                         this.isManageMode = false;
                         this.masterPin = null;
@@ -1176,7 +1180,7 @@
                 const currentValue = pinInput.value;
 
                 // Need at least 4 digits, and don't fire another switch if one is underway
-                if (currentValue.length < 4 || switchInProgress) return;
+                if (currentValue.length < 4 || switchInProgress || this._switchLock) return;
 
                 // Cancel any previous in-flight verify — only the latest keystroke matters
                 if (verifyController) verifyController.abort();
@@ -1201,7 +1205,7 @@
                         return;
                     }
                     // Only proceed if PIN matched and nothing else already triggered a switch
-                    if (res.ok && !switchInProgress) {
+                    if (res.ok && !switchInProgress && !this._switchLock) {
                         switchInProgress = true;
                         this.executeProfileSwitch(profileId, currentValue, () => {
                             // Verify said OK but switch failed (edge case) — reset silently
@@ -1217,11 +1221,16 @@
 
             // Manual submit — only place where we show an error on wrong PIN
             const submitPin = () => {
+                if (switchInProgress || this._switchLock) return;
                 if (verifyController) verifyController.abort();
                 verifyController = null;
                 const pin = pinInput.value;
                 if (!pin) return;
-                this.executeProfileSwitch(profileId, pin, showPinError);
+                switchInProgress = true;
+                this.executeProfileSwitch(profileId, pin, (msg) => {
+                    switchInProgress = false;
+                    showPinError(msg);
+                });
             };
 
             document.getElementById('pin-submit-btn').addEventListener('click', submitPin);
@@ -1277,10 +1286,13 @@
                 errorMsg.textContent = '';
             };
 
+            // Manual submit — only place where we show an error on wrong master PIN
+            let verifyInProgress = false;
+
             pinInput.addEventListener('input', () => {
                 clearError();
                 const currentValue = pinInput.value;
-                if (currentValue.length < 4 || verified) return;
+                if (currentValue.length < 4 || verified || verifyInProgress) return;
 
                 // Cancel previous in-flight verify — only the latest matters
                 if (verifyController) verifyController.abort();
@@ -1304,7 +1316,7 @@
                         this.handleSessionExpired();
                         return;
                     }
-                    if (res.ok && !verified) {
+                    if (res.ok && !verified && !verifyInProgress) {
                         verified = true;
                         this.masterPin = currentValue;
                         callback();
@@ -1315,15 +1327,12 @@
                 });
             });
 
-            // Manual submit — only place where we show an error on wrong master PIN
-            let verifyInProgress = false;
             const submitPin = () => {
-                if (verifyInProgress) return;
+                if (verifyInProgress || verified) return;
                 if (verifyController) verifyController.abort();
                 verifyController = null;
                 const pin = pinInput.value;
                 if (!pin) return;
-
                 const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
                 if (!masterState) return;
 
@@ -1348,6 +1357,7 @@
                         });
                     }
                     this.masterPin = pin;
+                    verified = true;
                     callback();
                 })
                 .catch(err => {

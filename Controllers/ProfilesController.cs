@@ -325,23 +325,26 @@ namespace Jellyfin.Profiles.Controllers
             await _userManager.UpdateConfigurationAsync(targetUser.Id, targetConfig).ConfigureAwait(false);
 
             // Add new mapping entry
-            config.Mappings.Add(new ProfileMapping
+            lock (config)
             {
-                ProfileUserId = targetUser.Id,
-                MasterUserId = masterUserId,
-                ProfileName = request.ProfileName,
-                PinHash = HashPin(request.Pin),
-                AvatarColor = request.AvatarColor,
-                IsHidden = true,
-                LockoutMinutes = request.LockoutMinutes ?? 5,
-                // Store the selected libraries as the plugin's own ground truth
-                EnabledFolders = request.EnabledFolders?.ToList() ?? new List<Guid>(),
-                BypassPinOnLocalNetwork = request.BypassPinOnLocalNetwork ?? false,
-                AllowedDeviceIds = request.AllowedDeviceIds ?? new List<string>(),
-                ProfileImage = SaveProfileImage(targetUser.Id, request.ProfileImage)
-            });
+                config.Mappings.Add(new ProfileMapping
+                {
+                    ProfileUserId = targetUser.Id,
+                    MasterUserId = masterUserId,
+                    ProfileName = request.ProfileName,
+                    PinHash = HashPin(request.Pin),
+                    AvatarColor = request.AvatarColor,
+                    IsHidden = true,
+                    LockoutMinutes = request.LockoutMinutes ?? 5,
+                    // Store the selected libraries as the plugin's own ground truth
+                    EnabledFolders = request.EnabledFolders?.ToList() ?? new List<Guid>(),
+                    BypassPinOnLocalNetwork = request.BypassPinOnLocalNetwork ?? false,
+                    AllowedDeviceIds = request.AllowedDeviceIds ?? new List<string>(),
+                    ProfileImage = SaveProfileImage(targetUser.Id, request.ProfileImage)
+                });
 
-            Plugin.Instance?.SaveConfiguration();
+                Plugin.Instance?.SaveConfiguration();
+            }
 
             return Ok(new
             {
@@ -408,8 +411,15 @@ namespace Jellyfin.Profiles.Controllers
             // Clean up static profile image if any
             SaveProfileImage(request.ProfileId, null);
 
-            config.Mappings.Remove(mapping);
-            Plugin.Instance?.SaveConfiguration();
+            lock (config)
+            {
+                var mappingToRemove = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
+                if (mappingToRemove != null)
+                {
+                    config.Mappings.Remove(mappingToRemove);
+                    Plugin.Instance?.SaveConfiguration();
+                }
+            }
 
             return Ok();
         }
@@ -554,8 +564,11 @@ namespace Jellyfin.Profiles.Controllers
                     // Persist the migration so we never need this fallback again
                     if (mapping != null)
                     {
-                        mapping.EnabledFolders = authorityFolders;
-                        Plugin.Instance?.SaveConfiguration();
+                        lock (config)
+                        {
+                            mapping.EnabledFolders = authorityFolders;
+                            Plugin.Instance?.SaveConfiguration();
+                        }
                     }
                 }
 
@@ -788,11 +801,14 @@ namespace Jellyfin.Profiles.Controllers
             var config = Plugin.Instance?.Configuration;
             if (config == null) return BadRequest("Plugin configuration missing.");
 
-            var mapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
-            if (mapping == null) return NotFound("Profile mapping not found.");
+            lock (config)
+            {
+                var mapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
+                if (mapping == null) return NotFound("Profile mapping not found.");
 
-            mapping.PinHash = string.Empty;
-            Plugin.Instance?.SaveConfiguration();
+                mapping.PinHash = string.Empty;
+                Plugin.Instance?.SaveConfiguration();
+            }
 
             return Ok();
         }
@@ -862,78 +878,19 @@ namespace Jellyfin.Profiles.Controllers
             var masterUserDto = _userManager.GetUserDto(masterUser, string.Empty);
             var masterPolicy = masterUserDto.Policy;
 
-            // Fetch or create mapping for this profile
-            var mappingEntry = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
-            if (mappingEntry == null && request.ProfileId == masterUserId)
+            // Renaming logic
+            if (request.ProfileId != masterUserId)
             {
-                mappingEntry = new ProfileMapping
+                string systemUsername = $"{masterUser.Username}_{request.ProfileName.Replace(" ", "")}";
+                if (!string.Equals(targetUser.Username, systemUsername, StringComparison.OrdinalIgnoreCase))
                 {
-                    ProfileUserId = masterUserId,
-                    MasterUserId = masterUserId,
-                    ProfileName = masterUser.Username,
-                    IsHidden = false
-                };
-                config.Mappings.Add(mappingEntry);
-            }
-
-            if (mappingEntry != null)
-            {
-                // Update basic mapping properties (only for sub-profiles; master name is read-only)
-                if (request.ProfileId != masterUserId)
-                {
-                    mappingEntry.ProfileName = request.ProfileName;
-
-                    string systemUsername = $"{masterUser.Username}_{request.ProfileName.Replace(" ", "")}";
-                    if (!string.Equals(targetUser.Username, systemUsername, StringComparison.OrdinalIgnoreCase))
+                    var existingUser = GetAllUsers().FirstOrDefault(u => string.Equals(u.Username, systemUsername, StringComparison.OrdinalIgnoreCase));
+                    if (existingUser != null)
                     {
-                        var existingUser = GetAllUsers().FirstOrDefault(u => string.Equals(u.Username, systemUsername, StringComparison.OrdinalIgnoreCase));
-                        if (existingUser != null)
-                        {
-                            return BadRequest("A profile with this name already exists.");
-                        }
-                        targetUser.Username = systemUsername;
-                        await _userManager.UpdateUserAsync(targetUser).ConfigureAwait(false);
+                        return BadRequest("A profile with this name already exists.");
                     }
-                }
-
-                mappingEntry.AvatarColor = request.AvatarColor;
-
-                if (request.ProfileImage != null)
-                {
-                    mappingEntry.ProfileImage = SaveProfileImage(request.ProfileId, request.ProfileImage);
-                }
-
-                // Handle PIN updates
-                if (request.Pin == string.Empty)
-                {
-                    mappingEntry.PinHash = string.Empty;
-                }
-                else if (request.Pin != null)
-                {
-                    mappingEntry.PinHash = HashPin(request.Pin);
-                }
-
-                // Handle lockout timer update
-                if (request.LockoutMinutes.HasValue)
-                {
-                    mappingEntry.LockoutMinutes = request.LockoutMinutes.Value;
-                }
-
-                // Update stored library list (plugin's ground truth)
-                // Always set when editing a sub-profile; null means "leave unchanged" (sent by master-profile saves).
-                if (request.EnabledFolders != null)
-                {
-                    mappingEntry.EnabledFolders = request.EnabledFolders.ToList();
-                }
-
-                if (request.BypassPinOnLocalNetwork.HasValue)
-                {
-                    mappingEntry.BypassPinOnLocalNetwork = request.BypassPinOnLocalNetwork.Value;
-                }
-
-                if (request.AllowedDeviceIds != null)
-                {
-                    mappingEntry.AllowedDeviceIds = request.AllowedDeviceIds;
+                    targetUser.Username = systemUsername;
+                    await _userManager.UpdateUserAsync(targetUser).ConfigureAwait(false);
                 }
             }
 
@@ -986,7 +943,73 @@ namespace Jellyfin.Profiles.Controllers
                 await _userManager.UpdatePolicyAsync(targetUser.Id, targetPolicy).ConfigureAwait(false);
             }
 
-            Plugin.Instance?.SaveConfiguration();
+            lock (config)
+            {
+                // Fetch or create mapping for this profile inside the lock
+                var mappingEntry = config.Mappings.FirstOrDefault(m => m.ProfileUserId == request.ProfileId);
+                if (mappingEntry == null && request.ProfileId == masterUserId)
+                {
+                    mappingEntry = new ProfileMapping
+                    {
+                        ProfileUserId = masterUserId,
+                        MasterUserId = masterUserId,
+                        ProfileName = masterUser.Username,
+                        IsHidden = false
+                    };
+                    config.Mappings.Add(mappingEntry);
+                }
+
+                if (mappingEntry != null)
+                {
+                    // Update basic mapping properties (only for sub-profiles; master name is read-only)
+                    if (request.ProfileId != masterUserId)
+                    {
+                        mappingEntry.ProfileName = request.ProfileName;
+                    }
+
+                    mappingEntry.AvatarColor = request.AvatarColor;
+
+                    if (request.ProfileImage != null)
+                    {
+                        mappingEntry.ProfileImage = SaveProfileImage(request.ProfileId, request.ProfileImage);
+                    }
+
+                    // Handle PIN updates
+                    if (request.Pin == string.Empty)
+                    {
+                        mappingEntry.PinHash = string.Empty;
+                    }
+                    else if (request.Pin != null)
+                    {
+                        mappingEntry.PinHash = HashPin(request.Pin);
+                    }
+
+                    // Handle lockout timer update
+                    if (request.LockoutMinutes.HasValue)
+                    {
+                        mappingEntry.LockoutMinutes = request.LockoutMinutes.Value;
+                    }
+
+                    // Update stored library list (plugin's ground truth)
+                    if (request.EnabledFolders != null)
+                    {
+                        mappingEntry.EnabledFolders = request.EnabledFolders.ToList();
+                    }
+
+                    if (request.BypassPinOnLocalNetwork.HasValue)
+                    {
+                        mappingEntry.BypassPinOnLocalNetwork = request.BypassPinOnLocalNetwork.Value;
+                    }
+
+                    if (request.AllowedDeviceIds != null)
+                    {
+                        mappingEntry.AllowedDeviceIds = request.AllowedDeviceIds;
+                    }
+                }
+
+                Plugin.Instance?.SaveConfiguration();
+            }
+
             return Ok();
         }
 
@@ -1227,24 +1250,28 @@ namespace Jellyfin.Profiles.Controllers
                 return BadRequest("DeviceId is required.");
             }
 
-            var matchingDevices = config.KnownDevices
-                .Where(d => string.Equals(d.DeviceId, request.DeviceId, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            foreach (var d in matchingDevices)
+            lock (config)
             {
-                config.KnownDevices.Remove(d);
-            }
-
-            // Remove it from any profile's allowed list
-            foreach (var mapping in config.Mappings)
-            {
-                if (mapping.AllowedDeviceIds != null)
+                var matchingDevices = config.KnownDevices
+                    .Where(d => string.Equals(d.DeviceId, request.DeviceId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                foreach (var d in matchingDevices)
                 {
-                    mapping.AllowedDeviceIds.RemoveAll(id => string.Equals(id, request.DeviceId, StringComparison.OrdinalIgnoreCase));
+                    config.KnownDevices.Remove(d);
                 }
+
+                // Remove it from any profile's allowed list
+                foreach (var mapping in config.Mappings)
+                {
+                    if (mapping.AllowedDeviceIds != null)
+                    {
+                        mapping.AllowedDeviceIds.RemoveAll(id => string.Equals(id, request.DeviceId, StringComparison.OrdinalIgnoreCase));
+                    }
+                }
+
+                Plugin.Instance?.SaveConfiguration();
             }
 
-            Plugin.Instance?.SaveConfiguration();
             return Ok();
         }
 
@@ -1358,28 +1385,39 @@ namespace Jellyfin.Profiles.Controllers
                 return Unauthorized("Only the master profile can manage Bonfire groups.");
             }
 
-            var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterUserId);
-            if (group == null)
-            {
-                group = new BonfireGroup
-                {
-                    OwnerUserId = masterUserId,
-                    BonfireCode = GenerateSecureCode()
-                };
-                config.BonfireGroups.Add(group);
-            }
-            else if (string.IsNullOrEmpty(group.BonfireCode))
-            {
-                group.BonfireCode = GenerateSecureCode();
-            }
+            string groupId;
+            string bonfireCode;
+            List<object> members;
 
-            Plugin.Instance?.SaveConfiguration();
+            lock (config)
+            {
+                var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterUserId);
+                if (group == null)
+                {
+                    group = new BonfireGroup
+                    {
+                        OwnerUserId = masterUserId,
+                        BonfireCode = GenerateSecureCode()
+                    };
+                    config.BonfireGroups.Add(group);
+                }
+                else if (string.IsNullOrEmpty(group.BonfireCode))
+                {
+                    group.BonfireCode = GenerateSecureCode();
+                }
+
+                Plugin.Instance?.SaveConfiguration();
+
+                groupId = group.GroupId;
+                bonfireCode = group.BonfireCode;
+                members = GetBonfireGroupMembers(group, config);
+            }
 
             return Ok(new
             {
-                GroupId = group.GroupId,
-                BonfireCode = group.BonfireCode,
-                Members = GetBonfireGroupMembers(group, config)
+                GroupId = groupId,
+                BonfireCode = bonfireCode,
+                Members = members
             });
         }
 
@@ -1422,41 +1460,53 @@ namespace Jellyfin.Profiles.Controllers
                 return BadRequest("Invalid code format.");
             }
 
-            var group = config.BonfireGroups.FirstOrDefault(g => g.BonfireCode == code);
-            if (group == null)
-            {
-                BonfireRateLimiter.RecordFailure(ip);
-                return BadRequest("Invalid Bonfire Code.");
-            }
+            Guid ownerUserId;
+            bool newlyJoined = false;
 
-            if (group.OwnerUserId == masterId)
+            lock (config)
             {
-                return BadRequest("You cannot join your own Bonfire group.");
-            }
-
-            if (group.MemberUserIds.Contains(masterId))
-            {
-                return Ok(new { Message = "Already a member of this group." });
-            }
-
-            // Remove user from any existing bonfire groups they joined
-            foreach (var g in config.BonfireGroups)
-            {
-                if (g.MemberUserIds.Contains(masterId))
+                var group = config.BonfireGroups.FirstOrDefault(g => g.BonfireCode == code);
+                if (group == null)
                 {
-                    g.MemberUserIds.Remove(masterId);
+                    BonfireRateLimiter.RecordFailure(ip);
+                    return BadRequest("Invalid Bonfire Code.");
                 }
+
+                if (group.OwnerUserId == masterId)
+                {
+                    return BadRequest("You cannot join your own Bonfire group.");
+                }
+
+                if (group.MemberUserIds.Contains(masterId))
+                {
+                    return Ok(new { Message = "Already a member of this group." });
+                }
+
+                // Remove user from any existing bonfire groups they joined
+                foreach (var g in config.BonfireGroups)
+                {
+                    if (g.MemberUserIds.Contains(masterId))
+                    {
+                        g.MemberUserIds.Remove(masterId);
+                    }
+                }
+
+                group.MemberUserIds.Add(masterId);
+                Plugin.Instance?.SaveConfiguration();
+
+                ownerUserId = group.OwnerUserId;
+                newlyJoined = true;
             }
 
-            group.MemberUserIds.Add(masterId);
-            Plugin.Instance?.SaveConfiguration();
-            
-            BonfireRateLimiter.Reset(ip);
+            if (newlyJoined)
+            {
+                BonfireRateLimiter.Reset(ip);
+            }
 
             return Ok(new
             {
                 Message = "Successfully joined Bonfire group.",
-                OwnerName = _userManager.GetUserById(group.OwnerUserId)?.Username ?? "Unknown"
+                OwnerName = _userManager.GetUserById(ownerUserId)?.Username ?? "Unknown"
             });
         }
 
@@ -1484,17 +1534,20 @@ namespace Jellyfin.Profiles.Controllers
                 return Unauthorized("Only the master profile can manage Bonfire groups.");
             }
 
-            var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterId);
-            if (group == null)
+            lock (config)
             {
-                return BadRequest("You do not own a Bonfire group.");
-            }
+                var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterId);
+                if (group == null)
+                {
+                    return BadRequest("You do not own a Bonfire group.");
+                }
 
-            if (group.MemberUserIds.Contains(request.MemberId))
-            {
-                group.MemberUserIds.Remove(request.MemberId);
-                Plugin.Instance?.SaveConfiguration();
-                return Ok();
+                if (group.MemberUserIds.Contains(request.MemberId))
+                {
+                    group.MemberUserIds.Remove(request.MemberId);
+                    Plugin.Instance?.SaveConfiguration();
+                    return Ok();
+                }
             }
 
             return NotFound("Member not found in your Bonfire group.");
@@ -1513,12 +1566,15 @@ namespace Jellyfin.Profiles.Controllers
             if (currentUserIdVal == null) return Unauthorized();
             Guid masterId = currentUserIdVal.Value;
 
-            var joinedGroup = config.BonfireGroups.FirstOrDefault(g => g.MemberUserIds.Contains(masterId));
-            if (joinedGroup != null)
+            lock (config)
             {
-                joinedGroup.MemberUserIds.Remove(masterId);
-                Plugin.Instance?.SaveConfiguration();
-                return Ok();
+                var joinedGroup = config.BonfireGroups.FirstOrDefault(g => g.MemberUserIds.Contains(masterId));
+                if (joinedGroup != null)
+                {
+                    joinedGroup.MemberUserIds.Remove(masterId);
+                    Plugin.Instance?.SaveConfiguration();
+                    return Ok();
+                }
             }
 
             return BadRequest("You are not in any Bonfire group.");
@@ -1537,12 +1593,15 @@ namespace Jellyfin.Profiles.Controllers
             if (currentUserIdVal == null) return Unauthorized();
             Guid masterId = currentUserIdVal.Value;
 
-            var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterId);
-            if (group != null)
+            lock (config)
             {
-                config.BonfireGroups.Remove(group);
-                Plugin.Instance?.SaveConfiguration();
-                return Ok();
+                var group = config.BonfireGroups.FirstOrDefault(g => g.OwnerUserId == masterId);
+                if (group != null)
+                {
+                    config.BonfireGroups.Remove(group);
+                    Plugin.Instance?.SaveConfiguration();
+                    return Ok();
+                }
             }
 
             return BadRequest("You do not own a Bonfire group.");
@@ -1567,23 +1626,26 @@ namespace Jellyfin.Profiles.Controllers
                 return Unauthorized("Only the master profile can update Bonfire settings.");
             }
 
-            var masterMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == masterUserId);
-            if (masterMapping == null)
+            lock (config)
             {
-                masterMapping = new ProfileMapping
+                var masterMapping = config.Mappings.FirstOrDefault(m => m.ProfileUserId == masterUserId);
+                if (masterMapping == null)
                 {
-                    ProfileUserId = masterUserId,
-                    MasterUserId = masterUserId,
-                    ProfileName = _userManager.GetUserById(masterUserId)?.Username ?? "Master",
-                    IsHidden = false
-                };
-                config.Mappings.Add(masterMapping);
+                    masterMapping = new ProfileMapping
+                    {
+                        ProfileUserId = masterUserId,
+                        MasterUserId = masterUserId,
+                        ProfileName = _userManager.GetUserById(masterUserId)?.Username ?? "Master",
+                        IsHidden = false
+                    };
+                    config.Mappings.Add(masterMapping);
+                }
+
+                masterMapping.HideMySubProfilesFromOthers = request.HideMySubProfilesFromOthers;
+                masterMapping.HideOthersSubProfilesFromMe = request.HideOthersSubProfilesFromMe;
+
+                Plugin.Instance?.SaveConfiguration();
             }
-
-            masterMapping.HideMySubProfilesFromOthers = request.HideMySubProfilesFromOthers;
-            masterMapping.HideOthersSubProfilesFromMe = request.HideOthersSubProfilesFromMe;
-
-            Plugin.Instance?.SaveConfiguration();
 
             return Ok();
         }
@@ -1750,32 +1812,36 @@ namespace Jellyfin.Profiles.Controllers
             var config = Plugin.Instance?.Configuration;
             if (config == null) return BadRequest("Plugin configuration missing.");
 
-            if (request.MaxProfiles.HasValue)
+            lock (config)
             {
-                if (request.MaxProfiles.Value < 1)
+                if (request.MaxProfiles.HasValue)
                 {
-                    return BadRequest("Maximum profiles must be at least 1.");
-                }
-                var existing = config.UserProfileLimitOverrides.FirstOrDefault(o => o.UserId == request.UserId);
-                if (existing != null)
-                {
-                    existing.MaxProfiles = request.MaxProfiles.Value;
+                    if (request.MaxProfiles.Value < 1)
+                    {
+                        return BadRequest("Maximum profiles must be at least 1.");
+                    }
+                    var existing = config.UserProfileLimitOverrides.FirstOrDefault(o => o.UserId == request.UserId);
+                    if (existing != null)
+                    {
+                        existing.MaxProfiles = request.MaxProfiles.Value;
+                    }
+                    else
+                    {
+                        config.UserProfileLimitOverrides.Add(new UserProfileLimitOverride
+                        {
+                            UserId = request.UserId,
+                            MaxProfiles = request.MaxProfiles.Value
+                        });
+                    }
                 }
                 else
                 {
-                    config.UserProfileLimitOverrides.Add(new UserProfileLimitOverride
-                    {
-                        UserId = request.UserId,
-                        MaxProfiles = request.MaxProfiles.Value
-                    });
+                    config.UserProfileLimitOverrides.RemoveAll(o => o.UserId == request.UserId);
                 }
-            }
-            else
-            {
-                config.UserProfileLimitOverrides.RemoveAll(o => o.UserId == request.UserId);
+
+                Plugin.Instance?.SaveConfiguration();
             }
 
-            Plugin.Instance?.SaveConfiguration();
             return Ok();
         }
 
