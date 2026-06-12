@@ -39,12 +39,16 @@ On restart the plugin automatically injects its client script into Jellyfin's `i
 
 - Up to 5 isolated profiles per Jellyfin account
 - Per-profile PIN protection with auto-submit on correct entry
+- **Local Network PIN Bypass:** Option to skip PIN prompts automatically when connected via local home network (LAN)
+- **Device Restrictions:** Restrict specific sub-profiles to designated devices only (whitelist)
+- **Connected Device History:** View a log of connected devices and delete inactive device logs
+- **Plex Home-style Bonfire Codes:** Securely link separate master accounts using server-generated 6-character codes, protected by brute-force rate limiting
 - Configurable inactivity auto-lock (1 min – 1 hour) per profile
 - Parental rating limits per profile
 - Per-profile library access control
 - Profile avatars with 18 customizable colors
 - Full profile management dashboard built into the Jellyfin web UI
-- Switch Profile button injected into the Jellyfin header — works on desktop, mobile, and TV browsers
+- Switch Profile button injected into the Jellyfin header and focusable TV sidebar with full D-pad remote compatibility
 
 ---
 
