@@ -457,7 +457,7 @@ namespace Jellyfin.Profiles.Controllers
             if (mapping != null && mapping.ProfileUserId != mapping.MasterUserId && mapping.AllowedDeviceIds != null && mapping.AllowedDeviceIds.Count > 0)
             {
                 var targetDeviceId = GetAuthorizationParameter("DeviceId");
-                if (string.IsNullOrEmpty(targetDeviceId) || !mapping.AllowedDeviceIds.Contains(targetDeviceId))
+                if (string.IsNullOrEmpty(targetDeviceId) || !mapping.AllowedDeviceIds.Any(id => string.Equals(id, targetDeviceId, StringComparison.OrdinalIgnoreCase)))
                 {
                     return BadRequest("This profile is not allowed on this device.");
                 }
@@ -622,7 +622,7 @@ namespace Jellyfin.Profiles.Controllers
             if (mapping != null && mapping.ProfileUserId != mapping.MasterUserId && mapping.AllowedDeviceIds != null && mapping.AllowedDeviceIds.Count > 0)
             {
                 var deviceId = GetAuthorizationParameter("DeviceId");
-                if (string.IsNullOrEmpty(deviceId) || !mapping.AllowedDeviceIds.Contains(deviceId))
+                if (string.IsNullOrEmpty(deviceId) || !mapping.AllowedDeviceIds.Any(id => string.Equals(id, deviceId, StringComparison.OrdinalIgnoreCase)))
                 {
                     return BadRequest("This profile is not allowed on this device.");
                 }
@@ -1105,7 +1105,7 @@ namespace Jellyfin.Profiles.Controllers
 
             lock (config)
             {
-                var existing = config.KnownDevices.FirstOrDefault(d => d.DeviceId == deviceId);
+                var existing = config.KnownDevices.FirstOrDefault(d => string.Equals(d.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase));
                 bool shouldSave = false;
                 if (existing != null)
                 {
@@ -1156,7 +1156,11 @@ namespace Jellyfin.Profiles.Controllers
             var currentUserIdVal = GetCurrentUserId();
             if (currentUserIdVal == null) return Unauthorized();
 
-            var devices = config.KnownDevices.OrderByDescending(d => d.LastSeen).ToList();
+            var devices = config.KnownDevices
+                .GroupBy(d => d.DeviceId, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(d => d.LastSeen).First())
+                .OrderByDescending(d => d.LastSeen)
+                .ToList();
             return Ok(devices);
         }
 
@@ -1189,18 +1193,20 @@ namespace Jellyfin.Profiles.Controllers
                 return BadRequest("DeviceId is required.");
             }
 
-            var device = config.KnownDevices.FirstOrDefault(d => d.DeviceId == request.DeviceId);
-            if (device != null)
+            var matchingDevices = config.KnownDevices
+                .Where(d => string.Equals(d.DeviceId, request.DeviceId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var d in matchingDevices)
             {
-                config.KnownDevices.Remove(device);
+                config.KnownDevices.Remove(d);
             }
 
             // Remove it from any profile's allowed list
             foreach (var mapping in config.Mappings)
             {
-                if (mapping.AllowedDeviceIds != null && mapping.AllowedDeviceIds.Contains(request.DeviceId))
+                if (mapping.AllowedDeviceIds != null)
                 {
-                    mapping.AllowedDeviceIds.Remove(request.DeviceId);
+                    mapping.AllowedDeviceIds.RemoveAll(id => string.Equals(id, request.DeviceId, StringComparison.OrdinalIgnoreCase));
                 }
             }
 

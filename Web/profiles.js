@@ -670,6 +670,7 @@
                     maxSubProfiles: p.maxSubProfiles !== undefined ? p.maxSubProfiles : (p.MaxSubProfiles !== undefined ? p.MaxSubProfiles : 5),
                     bypassPinOnLocalNetwork: p.bypassPinOnLocalNetwork !== undefined ? p.bypassPinOnLocalNetwork : (p.BypassPinOnLocalNetwork !== undefined ? p.BypassPinOnLocalNetwork : false),
                     allowedDeviceIds: p.allowedDeviceIds || p.AllowedDeviceIds || [],
+                    enabledFolders: p.enabledFolders || p.EnabledFolders || [],
                     isBonfire: p.isBonfire !== undefined ? p.isBonfire : (p.IsBonfire !== undefined ? p.IsBonfire : false),
                     profileImage: p.profileImage || p.ProfileImage || null,
                     masterUserId: p.masterUserId || p.MasterUserId || null
@@ -2377,7 +2378,7 @@
                     </div>
                     
                     <div class="profile-dialog-actions" style="margin-top: 2rem; display: flex; justify-content: center;">
-                        <button id="bonfire-back-btn" class="profiles-btn btn-secondary">Back</button>
+                        <button id="bonfire-back-btn" class="profiles-btn btn-secondary" style="padding: 10px 24px !important; font-size: 1rem !important; box-sizing: border-box !important; margin: 0 !important; display: inline-block !important;">Back</button>
                     </div>
                 </div>
             `;
@@ -2505,14 +2506,14 @@
                                     return `
                                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px;">
                                         <span style="font-size: 0.95rem; font-weight: 500;">${mUsername}</span>
-                                        <button type="button" class="bonfire-kick-btn" data-id="${mUserId}" style="background: #ff6b6b; border: none; color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 600; transition: background-color 0.2s;">Kick</button>
+                                        <button type="button" class="bonfire-kick-btn" data-id="${mUserId}" style="background: #ff6b6b !important; border: none !important; color: #fff !important; padding: 6px 12px !important; border-radius: 6px !important; font-size: 0.85rem !important; cursor: pointer !important; font-weight: 600 !important; transition: background-color 0.2s !important; margin: 0 !important; box-sizing: border-box !important;">Kick</button>
                                     </div>
                                     `;
                                 }).join('') : '<div style="font-size: 0.9rem; opacity: 0.5; font-style: italic; text-align: center; padding: 12px;">No members joined yet.</div>'}
                             </div>
                         </div>
                         <div style="display: flex; justify-content: flex-end;">
-                            <button type="button" id="bonfire-delete-btn" class="profiles-btn btn-danger" style="padding: 10px 20px; font-size: 0.95rem;">Delete Group</button>
+                            <button type="button" id="bonfire-delete-btn" class="profiles-btn btn-danger" style="padding: 10px 20px !important; font-size: 0.95rem !important; box-sizing: border-box !important; margin: 0 !important; display: inline-block !important;">Delete Group</button>
                         </div>
                     </div>
                 `;
@@ -2521,7 +2522,7 @@
                     <div class="bonfire-form-group" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 1.5rem;">
                         <label style="font-size: 1.1rem; font-weight: 700; color: #ff9900; display: block; margin-bottom: 4px;">Host a Bonfire</label>
                         <span style="font-size: 0.88rem; opacity: 0.75; display: block; margin-bottom: 12px;">Host your own group to share your sub-profiles with friends.</span>
-                        <button type="button" id="bonfire-generate-btn" class="profiles-btn btn-primary" style="width: 100%; padding: 12px; font-weight: 600;">Generate Join Code</button>
+                        <button type="button" id="bonfire-generate-btn" class="profiles-btn btn-primary" style="width: 100% !important; padding: 12px !important; font-weight: 600 !important; box-sizing: border-box !important; display: block !important; margin: 8px 0 !important;">Generate Join Code</button>
                     </div>
                 `;
             }
@@ -2537,7 +2538,7 @@
                             <span style="font-size: 0.85rem; opacity: 0.6; display: block; margin-top: -4px;">You can access each other's profiles from the switcher grid.</span>
                         </div>
                         <div style="display: flex; justify-content: flex-end;">
-                            <button type="button" id="bonfire-leave-btn" class="profiles-btn btn-danger" style="padding: 10px 20px; font-size: 0.95rem;">Leave Group</button>
+                            <button type="button" id="bonfire-leave-btn" class="profiles-btn btn-danger" style="padding: 10px 20px !important; font-size: 0.95rem !important; box-sizing: border-box !important; margin: 0 !important; display: inline-block !important;">Leave Group</button>
                         </div>
                     </div>
                 `;
@@ -2546,9 +2547,9 @@
                     <div class="bonfire-form-group">
                         <label style="font-size: 1.1rem; font-weight: 700; color: #3b82f6; display: block; margin-bottom: 4px;">Join a Bonfire</label>
                         <span style="font-size: 0.88rem; opacity: 0.75; display: block; margin-bottom: 12px;">Enter a friend's Bonfire Code to join their group:</span>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <input type="text" id="bonfire-join-input" placeholder="e.g. B7F8XA" maxlength="6" style="flex: 1; text-align: center; text-transform: uppercase; font-family: monospace; letter-spacing: 2px; height: 44px; box-sizing: border-box;" />
-                            <button type="button" id="bonfire-join-btn" class="profiles-btn btn-primary" style="padding: 0 24px; height: 44px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600;">Join</button>
+                        <div style="display: flex !important; gap: 10px !important; align-items: center !important; width: 100% !important; box-sizing: border-box !important; margin: 12px 0 !important;">
+                            <input type="text" id="bonfire-join-input" placeholder="e.g. B7F8XA" maxlength="6" style="flex: 1 1 0% !important; min-width: 0 !important; text-align: center !important; text-transform: uppercase !important; font-family: monospace !important; letter-spacing: 2px !important; height: 44px !important; box-sizing: border-box !important; margin: 0 !important; padding: 10px !important;" />
+                            <button type="button" id="bonfire-join-btn" class="profiles-btn btn-primary" style="flex: 0 0 auto !important; padding: 0 24px !important; height: 44px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-weight: 600 !important; margin: 0 !important; box-sizing: border-box !important;">Join</button>
                         </div>
                         <div id="bonfire-join-error" style="display: none; color: #ff6b6b; font-size: 0.85rem; font-weight: 600; margin-top: 8px; text-align: center;"></div>
                     </div>
@@ -2879,6 +2880,7 @@
                         maxSubProfiles: p.maxSubProfiles !== undefined ? p.maxSubProfiles : (p.MaxSubProfiles !== undefined ? p.MaxSubProfiles : 5),
                         bypassPinOnLocalNetwork: p.bypassPinOnLocalNetwork !== undefined ? p.bypassPinOnLocalNetwork : (p.BypassPinOnLocalNetwork !== undefined ? p.BypassPinOnLocalNetwork : false),
                         allowedDeviceIds: p.allowedDeviceIds || p.AllowedDeviceIds || [],
+                        enabledFolders: p.enabledFolders || p.EnabledFolders || [],
                         isBonfire: p.isBonfire !== undefined ? p.isBonfire : (p.IsBonfire !== undefined ? p.IsBonfire : false),
                         profileImage: p.profileImage || p.ProfileImage || null,
                         masterUserId: p.masterUserId || p.MasterUserId || null

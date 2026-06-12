@@ -8,6 +8,14 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.36.0",
+        "changelog": "Fix: Resolved sub-profile library permissions reset on edit. Fix: Resolved duplicate device entries in connected devices list via case-insensitive grouping. UI: Fixed input textbox and buttons overlapping inside the Bonfire Grouping join modal section with robust inline flexbox styling.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/Bonfire-JellyProfiles/releases/download/v1.0.36/Jellyfin.Profiles.zip",
+        "checksum": "placeholder",
+        "timestamp": "2026-06-12T16:00:00Z"
+      },
+      {
         "version": "1.0.35.0",
         "changelog": "Fix: Apply absolute overrides (!important) to input fields, checkboxes, labels, and descriptions on the Bonfire Grouping settings page to ensure they are rendered in-flow, bypassing any global Jellyfin layout styling overrides.",
         "targetAbi": "10.11.0.0",
