@@ -12,7 +12,7 @@
         "changelog": "Fix: KickBonfireMember now correctly rejects sub-profile callers with 401. loadBonfireStatus now handles expired session tokens (401) before parsing the response. Bonfire card in Manage Profiles is now only shown to the local master user, not Bonfire-linked remote masters. GET /devices auth corrected to Master User token in the API guide. README device log description clarified as server-wide.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.27/Jellyfin.Profiles.zip",
-        "checksum": "placeholder-checksum-to-be-replaced",
+        "checksum": "22e9f1d83b43b2d2f1258289a55bdd94",
         "timestamp": "2026-06-12T11:00:00Z"
       },
       {
