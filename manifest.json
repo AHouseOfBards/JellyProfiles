@@ -8,6 +8,14 @@
     "owner": "AHouseOfBards",
     "versions": [
       {
+        "version": "1.0.24.0",
+        "changelog": "Fix: Eliminated a legacy JavaScript syntax error in showEditProfileModal that completely prevented the plugin's script from loading or rendering in the browser.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/JellyProfiles/releases/download/v1.0.24/Jellyfin.Profiles.zip",
+        "checksum": "checksum-placeholder",
+        "timestamp": "2026-06-12T10:25:00Z"
+      },
+      {
         "version": "1.0.23.0",
         "changelog": "Fix: Resolved header insertion DOMException crash, added localized caching for synchronous profile resolution on cold boots/reloads, and visually updated both the primary switch button and fallback button to render as identical round themed profile avatars.",
         "targetAbi": "10.11.0.0",
