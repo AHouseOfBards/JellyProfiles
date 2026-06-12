@@ -100,7 +100,8 @@ namespace Jellyfin.Profiles.Controllers
                     BypassPinOnLocalNetwork = linkedMapping?.BypassPinOnLocalNetwork ?? false,
                     AllowedDeviceIds = linkedMapping?.AllowedDeviceIds ?? new List<string>(),
                     IsBonfire = (linkedId != masterUserId),
-                    ProfileImage = linkedMapping?.ProfileImage
+                    ProfileImage = linkedMapping?.ProfileImage,
+                    MasterUserId = linkedId
                 });
 
                 // Add all shadow profiles for this master
@@ -125,7 +126,8 @@ namespace Jellyfin.Profiles.Controllers
                             BypassPinOnLocalNetwork = m.BypassPinOnLocalNetwork,
                             AllowedDeviceIds = m.AllowedDeviceIds ?? new List<string>(),
                             IsBonfire = (linkedId != masterUserId),
-                            m.ProfileImage
+                            m.ProfileImage,
+                            m.MasterUserId
                         };
                     });
 

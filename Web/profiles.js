@@ -503,7 +503,8 @@
                     bypassPinOnLocalNetwork: p.bypassPinOnLocalNetwork !== undefined ? p.bypassPinOnLocalNetwork : (p.BypassPinOnLocalNetwork !== undefined ? p.BypassPinOnLocalNetwork : false),
                     allowedDeviceIds: p.allowedDeviceIds || p.AllowedDeviceIds || [],
                     isBonfire: p.isBonfire !== undefined ? p.isBonfire : (p.IsBonfire !== undefined ? p.IsBonfire : false),
-                    profileImage: p.profileImage || p.ProfileImage || null
+                    profileImage: p.profileImage || p.ProfileImage || null,
+                    masterUserId: p.masterUserId || p.MasterUserId || null
                 }));
                 this.cachedProfiles = normalized;
                 localStorage.setItem('jellyfin_profiles_cached_list', JSON.stringify(normalized));
@@ -673,82 +674,149 @@
             const subProfileCount = profiles.filter(p => !p.isMaster && !p.isBonfire).length;
             const atLimit = subProfileCount >= maxSubProfiles;
 
+            const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
+            const localMasterId = masterState ? this.normalizeGuid(masterState.masterUserId) : '';
+
+            // Group profiles by masterUserId
+            const grouped = {};
+            for (const p of profiles) {
+                const key = this.normalizeGuid(p.masterUserId || (p.isBonfire ? '' : localMasterId));
+                if (!grouped[key]) {
+                    grouped[key] = [];
+                }
+                grouped[key].push(p);
+            }
+
+            // Order groups so local home is first, then rest alphabetical by master user name
+            const groupKeys = Object.keys(grouped);
+            groupKeys.sort((a, b) => {
+                if (a === localMasterId) return -1;
+                if (b === localMasterId) return 1;
+                const masterA = grouped[a].find(p => p.isMaster);
+                const masterB = grouped[b].find(p => p.isMaster);
+                const nameA = masterA ? masterA.profileName.toLowerCase() : '';
+                const nameB = masterB ? masterB.profileName.toLowerCase() : '';
+                return nameA.localeCompare(nameB);
+            });
+
+            const renderCard = (p) => `
+                <div class="profile-card ${this.isManageMode ? 'manage-mode' : ''}" data-id="${p.profileUserId}" data-pin="${p.requiresPin}" tabindex="0">
+                    <div class="profile-avatar-container">
+                        ${p.isMaster ? `
+                        <div class="profile-crown">
+                            <svg viewBox="0 0 24 24" fill="currentColor" style="width: 28px; height: 28px; color: #ffb800; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.55));">
+                                <path d="M5 16h14a1 1 0 0 0 1-.76l2.89-10.12a.5.5 0 0 0-.74-.53l-5.6 3.73-4.11-6.17a.5.5 0 0 0-.88 0L7.45 8.32 1.85 4.59a.5.5 0 0 0-.74.53L4 15.24a1 1 0 0 0 1 .76z"/>
+                                <rect x="4" y="18" width="16" height="2" rx="1"/>
+                            </svg>
+                        </div>
+                        ` : ''}
+                        <div class="profile-avatar" style="background-color: ${p.avatarColor}; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                            ${p.profileImage ? `<img src="${p.profileImage}" style="width: 100%; height: 100%; object-fit: cover;" />` : p.avatarInitial}
+                            ${this.isManageMode ? `
+                            <div class="profile-avatar-overlay-wrap">
+                                <svg class="profile-avatar-overlay-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 32px; height: 32px; color: #fff;">
+                                    <path d="M12 20h9"></path>
+                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                                </svg>
+                            </div>
+                            ` : ''}
+                        </div>
+                        ${p.requiresPin ? `
+                        <div class="profile-lock-indicator">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; color: #fff;">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                        </div>
+                        ` : ''}
+                        ${p.isBonfire ? `
+                        <div class="profile-bonfire-indicator" title="Bonfire Profile">
+                            <span class="material-icons" style="font-size: 1.15rem; color: #fff;">local_fire_department</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                    <div class="profile-name">
+                        <span>${p.profileName}</span>
+                        ${this.isManageMode ? `
+                            <span class="profile-pin-badge ${p.requiresPin ? 'locked' : 'unlocked'}">
+                                ${p.requiresPin ? 'PIN Protected' : 'No PIN'}
+                            </span>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+
+            let sectionsHtml = '';
+            for (const k of groupKeys) {
+                const groupProfiles = grouped[k];
+                const isLocalGroup = (k === localMasterId);
+
+                let headerTitle = '';
+                let headerIcon = '';
+                let isBonfireIcon = false;
+
+                if (isLocalGroup) {
+                    headerTitle = "My Home";
+                    headerIcon = "home";
+                } else {
+                    const masterProfileForGroup = groupProfiles.find(p => p.isMaster);
+                    const groupName = masterProfileForGroup ? masterProfileForGroup.profileName : "Guest";
+                    headerTitle = `${groupName}'s Bonfire`;
+                    headerIcon = "local_fire_department";
+                    isBonfireIcon = true;
+                }
+
+                let cardsHtml = groupProfiles.map(p => renderCard(p)).join('');
+
+                if (isLocalGroup) {
+                    if (this.isManageMode && profiles.some(p => p.isMaster && !p.isBonfire)) {
+                        cardsHtml += `
+                            <div class="profile-card action-bonfire" tabindex="0">
+                                <div class="profile-avatar-container">
+                                    <div class="profile-avatar" style="background: linear-gradient(135deg, #ff9900 0%, #ff5500 100%); display: flex; align-items: center; justify-content: center;">
+                                        <span class="material-icons" style="font-size: 3.5rem; color: #fff;">local_fire_department</span>
+                                    </div>
+                                </div>
+                                <div class="profile-name">
+                                    <span>Bonfire</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (!this.isManageMode && !atLimit) {
+                        cardsHtml += `
+                            <div class="profile-card action-add-profile" tabindex="0">
+                                <div class="profile-avatar-container">
+                                    <div class="profile-avatar add-avatar">+</div>
+                                </div>
+                                <div class="profile-name">Add Profile</div>
+                            </div>
+                        `;
+                    } else if (!this.isManageMode) {
+                        cardsHtml += `
+                            <div class="profiles-limit-notice">${subProfileCount}/${maxSubProfiles} profiles — limit reached</div>
+                        `;
+                    }
+                }
+
+                sectionsHtml += `
+                    <div class="profiles-home-section">
+                        <div class="profiles-home-header">
+                            <span class="material-icons profiles-home-icon ${isBonfireIcon ? 'bonfire-icon-color' : ''}">${headerIcon}</span>
+                            <span class="profiles-home-title">${headerTitle}</span>
+                        </div>
+                        <div class="profiles-grid">
+                            ${cardsHtml}
+                        </div>
+                    </div>
+                `;
+            }
+
             overlay.innerHTML = `
                 <div class="profiles-modal-content anim-fade-in">
                     <h1 class="profiles-title">${title}</h1>
-                    <div class="profiles-grid">
-                        ${profiles.map(p => `
-                            <div class="profile-card ${this.isManageMode ? 'manage-mode' : ''}" data-id="${p.profileUserId}" data-pin="${p.requiresPin}" tabindex="0">
-                                <div class="profile-avatar-container">
-                                    ${p.isMaster ? `
-                                    <div class="profile-crown">
-                                        <svg viewBox="0 0 24 24" fill="currentColor" style="width: 28px; height: 28px; color: #ffb800; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.55));">
-                                            <path d="M5 16h14a1 1 0 0 0 1-.76l2.89-10.12a.5.5 0 0 0-.74-.53l-5.6 3.73-4.11-6.17a.5.5 0 0 0-.88 0L7.45 8.32 1.85 4.59a.5.5 0 0 0-.74.53L4 15.24a1 1 0 0 0 1 .76z"/>
-                                            <rect x="4" y="18" width="16" height="2" rx="1"/>
-                                        </svg>
-                                    </div>
-                                    ` : ''}
-                                    <div class="profile-avatar" style="background-color: ${p.avatarColor}; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-                                        ${p.profileImage ? `<img src="${p.profileImage}" style="width: 100%; height: 100%; object-fit: cover;" />` : p.avatarInitial}
-                                        ${this.isManageMode ? `
-                                        <div class="profile-avatar-overlay-wrap">
-                                            <svg class="profile-avatar-overlay-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 32px; height: 32px; color: #fff;">
-                                                <path d="M12 20h9"></path>
-                                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                                            </svg>
-                                        </div>
-                                        ` : ''}
-                                    </div>
-                                    ${p.requiresPin ? `
-                                    <div class="profile-lock-indicator">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; color: #fff;">
-                                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                                        </svg>
-                                    </div>
-                                    ` : ''}
-                                    ${p.isBonfire ? `
-                                    <div class="profile-bonfire-indicator" title="Bonfire Profile">
-                                        <span class="material-icons" style="font-size: 1.15rem; color: #fff;">local_fire_department</span>
-                                    </div>
-                                    ` : ''}
-                                </div>
-                                <div class="profile-name">
-                                    <span>${p.profileName}</span>
-                                    ${this.isManageMode ? `
-                                        <span class="profile-pin-badge ${p.requiresPin ? 'locked' : 'unlocked'}">
-                                            ${p.requiresPin ? 'PIN Protected' : 'No PIN'}
-                                        </span>
-                                    ` : ''}
-                                </div>
-                            </div>
-                        `).join('')}
-                        
-                        ${this.isManageMode && profiles.some(p => p.isMaster && !p.isBonfire) ? `
-                        <div class="profile-card action-bonfire" tabindex="0">
-                            <div class="profile-avatar-container">
-                                <div class="profile-avatar" style="background: linear-gradient(135deg, #ff9900 0%, #ff5500 100%); display: flex; align-items: center; justify-content: center;">
-                                    <span class="material-icons" style="font-size: 3.5rem; color: #fff;">local_fire_department</span>
-                                </div>
-                            </div>
-                            <div class="profile-name">
-                                <span>Bonfire</span>
-                            </div>
-                        </div>
-                        ` : ''}
-
-                        ${!this.isManageMode && !atLimit ? `
-                        <div class="profile-card action-add-profile" tabindex="0">
-                            <div class="profile-avatar-container">
-                                <div class="profile-avatar add-avatar">+</div>
-                            </div>
-                            <div class="profile-name">Add Profile</div>
-                        </div>
-                        ` : (!this.isManageMode ? `
-                        <div class="profiles-limit-notice">${subProfileCount}/${maxSubProfiles} profiles — limit reached</div>
-                        ` : '')}
-                    </div>
-                    
+                    ${sectionsHtml}
                     <div class="profiles-footer">
                         <button id="profiles-toggle-manage-btn" class="profiles-btn btn-secondary">${manageBtnText}</button>
                     </div>
@@ -2537,7 +2605,8 @@
                         bypassPinOnLocalNetwork: p.bypassPinOnLocalNetwork !== undefined ? p.bypassPinOnLocalNetwork : (p.BypassPinOnLocalNetwork !== undefined ? p.BypassPinOnLocalNetwork : false),
                         allowedDeviceIds: p.allowedDeviceIds || p.AllowedDeviceIds || [],
                         isBonfire: p.isBonfire !== undefined ? p.isBonfire : (p.IsBonfire !== undefined ? p.IsBonfire : false),
-                        profileImage: p.profileImage || p.ProfileImage || null
+                        profileImage: p.profileImage || p.ProfileImage || null,
+                        masterUserId: p.masterUserId || p.MasterUserId || null
                     }));
                     this.cachedProfiles = normalized;
                     localStorage.setItem('jellyfin_profiles_cached_list', JSON.stringify(normalized));
@@ -2801,6 +2870,40 @@
                 .profiles-title {
                     font-size: 3rem; font-weight: 700; margin-bottom: 3rem;
                     text-shadow: 0 4px 20px rgba(0,0,0,0.6); letter-spacing: -0.05rem;
+                }
+                .profiles-home-section {
+                    width: 100%;
+                    margin-bottom: 2.5rem;
+                    background: rgba(255, 255, 255, 0.015);
+                    border: 1px solid rgba(255, 255, 255, 0.04);
+                    border-radius: 20px;
+                    padding: 1.75rem 2rem;
+                    box-sizing: border-box;
+                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+                    text-align: left;
+                }
+                .profiles-home-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    margin-bottom: 1.75rem;
+                    padding-bottom: 0.75rem;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                }
+                .profiles-home-icon {
+                    font-size: 1.8rem;
+                    color: #00a4dc;
+                    text-shadow: 0 2px 10px rgba(0, 164, 220, 0.3);
+                }
+                .profiles-home-icon.bonfire-icon-color {
+                    color: #ff5500;
+                    text-shadow: 0 2px 10px rgba(255, 85, 0, 0.3);
+                }
+                .profiles-home-title {
+                    font-size: 1.5rem;
+                    font-weight: 700;
+                    letter-spacing: -0.02em;
+                    color: #fff;
                 }
                 .profiles-grid {
                     display: flex; flex-wrap: wrap; gap: 3rem; justify-content: center; width: 100%;
