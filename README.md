@@ -19,7 +19,7 @@ Adds multi-user profile switching to Jellyfin. A single account can have up to f
 1. In your Jellyfin dashboard, go to **Plugins → Repositories → ＋**
 2. Paste the following URL and click **Save**:
    ```
-   https://ahouseofbards.github.io/JellyProfiles/manifest.json
+   https://ahouseofbards.github.io/Bonfire-JellyProfiles/manifest.json
    ```
 3. Go to **Plugins → Catalog**, find **Profiles Management**, and click **Install**
 4. Restart your Jellyfin server when prompted
