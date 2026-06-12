@@ -570,9 +570,26 @@
 
             const currentToken = apiClient.accessToken();
             if (!currentToken) {
-                localStorage.removeItem(this.config.masterStorageKey);
-                sessionStorage.removeItem(this.config.activeSessionKey);
-                sessionStorage.removeItem('jellyfin_profiles_active_info');
+                // If ApiClient token is empty, check if we are truly logged out of Jellyfin.
+                // During initial page load, ApiClient.accessToken() is temporarily empty
+                // while the web app initializes, but 'jellyfin_credentials' in localStorage
+                // still contains the active session token.
+                let isLoggedOut = true;
+                try {
+                    const credsStr = localStorage.getItem('jellyfin_credentials');
+                    if (credsStr) {
+                        const creds = JSON.parse(credsStr);
+                        if (creds && Array.isArray(creds.Servers) && creds.Servers.some(s => !!s.AccessToken)) {
+                            isLoggedOut = false;
+                        }
+                    }
+                } catch (e) {}
+
+                if (isLoggedOut) {
+                    localStorage.removeItem(this.config.masterStorageKey);
+                    sessionStorage.removeItem(this.config.activeSessionKey);
+                    sessionStorage.removeItem('jellyfin_profiles_active_info');
+                }
                 return;
             }
 
