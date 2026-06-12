@@ -27,14 +27,38 @@ namespace Jellyfin.Profiles
     /// </summary>
     public class ProfilesBootstrapTask : IHostedService
     {
-        // The exact script tag to inject.  The URL /plugins/profiles/profiles.js is
-        // the path Jellyfin uses to serve embedded plugin resources at runtime.
-        private const string ScriptTag =
+        // The exact script tag to inject before </body>.
+        // The URL /plugins/profiles/profiles.js is the path
+        // Jellyfin uses to serve embedded resources from plugin assemblies.
+        private const string BodyScriptTag =
             "<script src=\"/plugins/profiles/profiles.js\" defer></script>";
 
-        // Unique substring used to detect whether the tag is already present so
-        // we never inject it twice.
-        private const string Marker = "/plugins/profiles/profiles.js";
+        // Unique substring to detect whether the body tag is already present.
+        private const string BodyMarker = "/plugins/profiles/profiles.js";
+
+        // Tiny inline script injected into <head> — runs before any deferred bundle,
+        // before React renders. Reads the switching flag set by profiles.js before
+        // each window.location.reload() and hides the html element instantly to
+        // prevent the flash-of-content during profile switches.
+        // A 4-second failsafe restores visibility if profiles.js fails to load.
+        private const string HeadScript =
+            "<script id=\"jpf-eh\">" +
+            "!function(){" +
+                "if(localStorage.getItem('jpf-sw')){" +
+                    "var h=document.documentElement;" +
+                    "h.style.opacity='0';" +
+                    "h.style.background='#101010';" +
+                    "window.__jpReveal=setTimeout(function(){" +
+                        "h.style.opacity='';" +
+                        "h.style.background='';" +
+                    "},4e3);" +
+                    "localStorage.removeItem('jpf-sw');" +
+                "}" +
+            "}();" +
+            "</script>";
+
+        // Unique substring to detect whether the head script is already present.
+        private const string HeadMarker = "jpf-eh";
 
         // Exposed so the dashboard page JS can check whether setup is complete.
         internal static bool InjectionSucceeded { get; private set; }
@@ -73,7 +97,7 @@ namespace Jellyfin.Profiles
                     "ProfilesPlugin: Could not locate index.html in any known Jellyfin web path. " +
                     "The Profiles client script will not load automatically. " +
                     "Manually add the following line before </body> in your index.html: {Tag}",
-                    ScriptTag);
+                    BodyScriptTag);
                 return;
             }
 
@@ -81,26 +105,42 @@ namespace Jellyfin.Profiles
             {
                 var html = File.ReadAllText(indexPath);
 
-                if (html.Contains(Marker, StringComparison.Ordinal))
+                if (html.Contains(BodyMarker, StringComparison.Ordinal))
                 {
                     _logger.LogDebug(
-                        "ProfilesPlugin: Client script tag already present in {Path} — no changes made.",
+                        "ProfilesPlugin: Body script tag already present in {Path} — no changes made.",
                         indexPath);
                     InjectionSucceeded = true;
                     return;
                 }
 
+                bool changed = false;
+
+                // ── Inject early-hide script into <head> ────────────────────────
+                if (!html.Contains(HeadMarker, StringComparison.Ordinal))
+                {
+                    html = html.Replace(
+                        "</head>",
+                        HeadScript + "\n</head>",
+                        StringComparison.OrdinalIgnoreCase);
+                    changed = true;
+                }
+
+                // ── Inject deferred client script before </body> ────────────────
                 html = html.Replace(
                     "</body>",
-                    ScriptTag + "\n</body>",
+                    BodyScriptTag + "\n</body>",
                     StringComparison.OrdinalIgnoreCase);
+                changed = true;
 
-                File.WriteAllText(indexPath, html);
-                InjectionSucceeded = true;
-
-                _logger.LogInformation(
-                    "ProfilesPlugin: Client script tag injected successfully into {Path}.",
-                    indexPath);
+                if (changed)
+                {
+                    File.WriteAllText(indexPath, html);
+                    InjectionSucceeded = true;
+                    _logger.LogInformation(
+                        "ProfilesPlugin: Client scripts injected successfully into {Path}.",
+                        indexPath);
+                }
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -112,7 +152,7 @@ namespace Jellyfin.Profiles
                     ex,
                     "ProfilesPlugin: IO error reading/writing {Path}. " +
                     "Manually add the following line before </body>: {Tag}",
-                    indexPath, ScriptTag);
+                    indexPath, BodyScriptTag);
             }
             catch (Exception ex)
             {
@@ -203,7 +243,7 @@ namespace Jellyfin.Profiles
                     "  icacls \"{IndexPath}\" /grant \"NT AUTHORITY\\NetworkService:(M)\"\n\n" +
                     "Or add the following line before </body> manually (Notepad as Administrator):\n" +
                     "  {Tag}",
-                    indexPath, indexPath, ScriptTag);
+                    indexPath, indexPath, BodyScriptTag);
             }
             else if (IsRunningInDocker())
             {
@@ -215,7 +255,7 @@ namespace Jellyfin.Profiles
                     "Or bind-mount the web directory so the container can write it:\n" +
                     "  -v /host/jellyfin-web:/jellyfin/jellyfin-web\n" +
                     "The plugin will re-inject automatically on the next server restart.",
-                    indexPath, ScriptTag, indexPath);
+                    indexPath, BodyScriptTag, indexPath);
             }
             else
             {
@@ -226,7 +266,7 @@ namespace Jellyfin.Profiles
                     "  sudo chown jellyfin:jellyfin {IndexPath} && sudo chmod 644 {IndexPath}\n\n" +
                     "Or apply the patch once as root:\n" +
                     "  sudo sed -i 's|</body>|{Tag}\\n</body>|' {IndexPath}",
-                    indexPath, indexPath, indexPath, ScriptTag, indexPath);
+                    indexPath, indexPath, indexPath, BodyScriptTag, indexPath);
             }
         }
 

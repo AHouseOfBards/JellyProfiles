@@ -4,7 +4,10 @@
     const ProfilesPlugin = {
         config: {
             masterStorageKey: 'jellyfin_profiles_master_state',
-            activeSessionKey: 'jellyfin_profiles_active_token'
+            activeSessionKey: 'jellyfin_profiles_active_token',
+            // Key set before window.location.reload() so the early-hide
+            // inline head script can suppress the page flash on the next load.
+            switchingKey: 'jpf-sw'
         },
         pluginId: 'b1462fca-774b-4b13-8d02-e2d4f2bc18b9',
         isManageMode: false,
@@ -12,6 +15,7 @@
         cachedProfiles: [],
         inactivityTimer: null,
         inactivityEventHandlers: null,
+        _pageRevealed: false,
 
         getAuthHeaders: function (token) {
             const apiClient = ApiClient;
@@ -185,6 +189,34 @@
                            : isHome                        ? 'home'
                                                           : 'other';
             this.evaluateFloatingBubbleVisibility(viewType);
+
+            // Reveal the page now that the gate decision has been made.
+            // This is a no-op on normal loads; it only matters after a profile
+            // switch that used the early-hide head script to suppress the flash.
+            this._revealPage();
+        },
+
+        // Smoothly fades the page back in after a profile switch.
+        // The early-hide inline <script> in <head> sets html opacity to 0 before
+        // React renders, ensuring zero visible flash during the reload.
+        // This method is a no-op on normal page loads where the flag was never set.
+        _revealPage: function () {
+            if (this._pageRevealed || !document.documentElement.style.opacity) return;
+            this._pageRevealed = true;
+
+            if (window.__jpReveal) {
+                clearTimeout(window.__jpReveal);
+                window.__jpReveal = null;
+            }
+
+            document.documentElement.style.transition = 'opacity 0.18s ease';
+            document.documentElement.style.opacity = '1';
+            setTimeout(() => {
+                document.documentElement.style.removeProperty('opacity');
+                document.documentElement.style.removeProperty('transition');
+                document.documentElement.style.removeProperty('background');
+                this._pageRevealed = false;
+            }, 220);
         },
 
         isMonitoringUsers: false,
@@ -302,6 +334,7 @@
                 } else if (currentToken !== masterState.masterToken && !this.isProfileSessionActive()) {
                     this.updateStoredCredentials(masterState.masterToken, masterState.masterUserId);
                     apiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
+                    localStorage.setItem(this.config.switchingKey, '1');
                     window.location.reload();
                 }
             }
@@ -892,6 +925,7 @@
                 apiClient.setAuthenticationInfo(activeProfileToken, jellyfinUserId);
 
                 this.removeProfileOverlay();
+                localStorage.setItem(this.config.switchingKey, '1');
                 window.location.reload();
             })
             .catch(err => {
@@ -1549,6 +1583,7 @@
                     sessionStorage.removeItem(this.config.activeSessionKey);
                     this.updateStoredCredentials(masterState.masterToken, masterState.masterUserId);
                     ApiClient.setAuthenticationInfo(masterState.masterToken, masterState.masterUserId);
+                    localStorage.setItem(this.config.switchingKey, '1');
                     window.location.reload();
                 } else {
                     // No master state found — restore button so the user can try again

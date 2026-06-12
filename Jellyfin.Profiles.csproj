@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>Jellyfin.Profiles</AssemblyName>
     <RootNamespace>Jellyfin.Profiles</RootNamespace>
-    <Version>1.0.9</Version>
+    <Version>1.0.10</Version>
   </PropertyGroup>
 
   <ItemGroup>
