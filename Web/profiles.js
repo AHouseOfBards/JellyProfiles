@@ -30,6 +30,153 @@
             };
         },
 
+        showConfirmDialog: function (title, message, onConfirm, onCancel) {
+            const dialog = document.createElement('div');
+            dialog.id = 'profiles-confirm-dialog';
+            dialog.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.82);
+                backdrop-filter: blur(8px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 11000;
+                opacity: 0;
+                transition: opacity 0.15s ease-out;
+            `;
+
+            dialog.innerHTML = `
+                <div class="confirm-dialog-content" style="
+                    background: #181818;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 12px;
+                    padding: 24px;
+                    max-width: 420px;
+                    width: 90%;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                    text-align: center;
+                ">
+                    <h2 style="margin-top: 0; color: #fff; font-size: 1.25rem; font-weight: 700; margin-bottom: 12px;">${title}</h2>
+                    <p style="color: rgba(255,255,255,0.7); font-size: 0.92rem; line-height: 1.5; margin-bottom: 24px;">${message}</p>
+                    <div style="display: flex; gap: 12px; justify-content: center;">
+                        <button id="dialog-confirm-btn" class="profiles-btn btn-danger" style="padding: 10px 20px; font-weight: 600; min-width: 100px;">Confirm</button>
+                        <button id="dialog-cancel-btn" class="profiles-btn btn-secondary" style="padding: 10px 20px; font-weight: 600; min-width: 100px;">Cancel</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(dialog);
+            
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                dialog.style.opacity = '1';
+            }));
+
+            const closeDialog = () => {
+                dialog.style.opacity = '0';
+                setTimeout(() => dialog.remove(), 160);
+            };
+
+            const confirmBtn = dialog.querySelector('#dialog-confirm-btn');
+            const cancelBtn = dialog.querySelector('#dialog-cancel-btn');
+
+            confirmBtn.addEventListener('click', () => {
+                closeDialog();
+                if (typeof onConfirm === 'function') onConfirm();
+            });
+
+            cancelBtn.addEventListener('click', () => {
+                closeDialog();
+                if (typeof onCancel === 'function') onCancel();
+            });
+
+            cancelBtn.focus();
+            
+            dialog.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    if (document.activeElement === confirmBtn) {
+                        cancelBtn.focus();
+                    } else {
+                        confirmBtn.focus();
+                    }
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelBtn.click();
+                }
+            });
+        },
+
+        showAlert: function (title, message, onClose) {
+            const dialog = document.createElement('div');
+            dialog.id = 'profiles-alert-dialog';
+            dialog.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.82);
+                backdrop-filter: blur(8px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 11000;
+                opacity: 0;
+                transition: opacity 0.15s ease-out;
+            `;
+
+            dialog.innerHTML = `
+                <div class="alert-dialog-content" style="
+                    background: #181818;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 12px;
+                    padding: 24px;
+                    max-width: 420px;
+                    width: 90%;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                    text-align: center;
+                ">
+                    <h2 style="margin-top: 0; color: #fff; font-size: 1.25rem; font-weight: 700; margin-bottom: 12px;">${title}</h2>
+                    <p style="color: rgba(255,255,255,0.7); font-size: 0.92rem; line-height: 1.5; margin-bottom: 24px;">${message}</p>
+                    <div style="display: flex; justify-content: center;">
+                        <button id="dialog-close-btn" class="profiles-btn btn-primary" style="padding: 10px 24px; font-weight: 600; min-width: 120px;">OK</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(dialog);
+            
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                dialog.style.opacity = '1';
+            }));
+
+            const closeDialog = () => {
+                dialog.style.opacity = '0';
+                setTimeout(() => dialog.remove(), 160);
+            };
+
+            const closeBtn = dialog.querySelector('#dialog-close-btn');
+
+            closeBtn.addEventListener('click', () => {
+                closeDialog();
+                if (typeof onClose === 'function') onClose();
+            });
+
+            closeBtn.focus();
+
+            dialog.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    closeBtn.click();
+                }
+            });
+        },
+
         updateStoredCredentials: function (newToken, newUserId) {
             try {
                 const credsStr = localStorage.getItem('jellyfin_credentials');
@@ -1353,8 +1500,12 @@
                                     <div id="create-image-upload-preview" style="width: 64px; height: 64px; border-radius: 50%; background-color: #00A4DC; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; text-transform: uppercase; overflow: hidden; border: 2px solid rgba(255,255,255,0.2);">
                                         +
                                     </div>
-                                    <div style="display: flex; flex-direction: column; gap: 5px;">
-                                        <input type="file" id="create-profile-image-file" accept="image/*" style="font-size: 0.85rem; color: rgba(255,255,255,0.7);" />
+                                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                                        <label for="create-profile-image-file" id="create-profile-image-label" class="profiles-btn btn-secondary" style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; font-size: 0.95rem; align-self: flex-start;" tabindex="0">
+                                            <span class="material-icons" style="font-size: 1.25rem;">photo_camera</span>
+                                            <span>Choose Image</span>
+                                        </label>
+                                        <input type="file" id="create-profile-image-file" accept="image/*" style="display: none;" />
                                         <div style="font-size: 0.75rem; opacity: 0.6;">Maximum size: 96x96 pixels (auto-resized)</div>
                                     </div>
                                 </div>
@@ -1421,6 +1572,15 @@
                 // Profile Image Upload / URL Handlers for Create
                 let uploadedImageBase64 = null;
                 const fileInput = document.getElementById('create-profile-image-file');
+                const fileLabel = document.getElementById('create-profile-image-label');
+                if (fileLabel) {
+                    fileLabel.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            fileInput.click();
+                        }
+                    });
+                }
                 const urlInput = document.getElementById('create-profile-image-url');
                 const previewDiv = document.getElementById('create-image-upload-preview');
 
@@ -1739,8 +1899,12 @@
                                     <div id="edit-image-upload-preview" style="width: 64px; height: 64px; border-radius: 50%; background-color: ${profile.avatarColor || '#00A4DC'}; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; text-transform: uppercase; overflow: hidden; border: 2px solid rgba(255,255,255,0.2);">
                                         ${profile.profileImage ? `<img src="${profile.profileImage}" style="width: 100%; height: 100%; object-fit: cover;" />` : profile.avatarInitial}
                                     </div>
-                                    <div style="display: flex; flex-direction: column; gap: 5px;">
-                                        <input type="file" id="edit-profile-image-file" accept="image/*" style="font-size: 0.85rem; color: rgba(255,255,255,0.7);" />
+                                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                                        <label for="edit-profile-image-file" id="edit-profile-image-label" class="profiles-btn btn-secondary" style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; font-size: 0.95rem; align-self: flex-start;" tabindex="0">
+                                            <span class="material-icons" style="font-size: 1.25rem;">photo_camera</span>
+                                            <span>Choose Image</span>
+                                        </label>
+                                        <input type="file" id="edit-profile-image-file" accept="image/*" style="display: none;" />
                                         <div style="font-size: 0.75rem; opacity: 0.6;">Maximum size: 96x96 pixels (auto-resized)</div>
                                     </div>
                                 </div>
@@ -1869,6 +2033,15 @@
                 // Profile Image Upload / URL Handlers for Edit
                 let uploadedImageBase64 = profile.profileImage || null;
                 const fileInput = document.getElementById('edit-profile-image-file');
+                const editFileLabel = document.getElementById('edit-profile-image-label');
+                if (editFileLabel) {
+                    editFileLabel.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            fileInput.click();
+                        }
+                    });
+                }
                 const urlInput = document.getElementById('edit-profile-image-url');
                 const previewDiv = document.getElementById('edit-image-upload-preview');
                 const clearImgBtn = document.getElementById('edit-clear-profile-image-btn');
@@ -2030,7 +2203,7 @@
                         e.preventDefault();
                         e.stopPropagation();
                         const devId = btn.getAttribute('data-id');
-                        if (confirm('Are you sure you want to delete this device from the connected history? This will also remove any access restrictions associated with it.')) {
+                        this.showConfirmDialog('Delete Device History', 'Are you sure you want to delete this device from the connected history? This will also remove any access restrictions associated with it.', () => {
                             const delDevUrl = apiClient.getUrl('plugins/profiles/devices/delete');
                             fetch(delDevUrl, {
                                 method: 'POST',
@@ -2050,11 +2223,11 @@
                                     }
                                     updateSelectedText();
                                 } else {
-                                    alert('Failed to delete device.');
+                                    this.showAlert('Error', 'Failed to delete device.');
                                 }
                             })
-                            .catch(err => alert('Error: ' + err.message));
-                        }
+                            .catch(err => this.showAlert('Error', 'Error: ' + err.message));
+                        });
                     });
                 });
 
@@ -2097,7 +2270,7 @@
                     const lockoutMinutes = lockoutSel ? parseInt(lockoutSel.value, 10) : undefined;
 
                     if (!name) {
-                        alert("Profile name is required.");
+                        this.showAlert("Validation Error", "Profile name is required.");
                         return;
                     }
 
@@ -2106,7 +2279,7 @@
                         pin = ''; // Tells backend to clear the PIN
                     } else if (pinVal) {
                         if (pinVal.length < 4 || pinVal.length > 8 || !/^\d+$/.test(pinVal)) {
-                            alert("PIN code must be a numeric value between 4 and 8 digits.");
+                            this.showAlert("Validation Error", "PIN code must be a numeric value between 4 and 8 digits.");
                             return;
                         }
                         pin = pinVal;
@@ -2137,16 +2310,14 @@
                         if (!res.ok) return res.text().then(text => { throw new Error(text); });
                         this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
                     })
-                    .catch(err => alert("Error saving profile: " + err.message));
+                    .catch(err => this.showAlert("Error", "Error saving profile: " + err.message));
                 });
 
                 // Delete handler
-                const delBtn = document.getElementById('edit-delete-btn');
-                if (delBtn) {
                     delBtn.addEventListener('click', () => {
-                        if (confirm(`Are you sure you want to delete profile "${profile.profileName}" and its underlying user account?`)) {
+                        this.showConfirmDialog('Delete Profile', `Are you sure you want to delete profile "${profile.profileName}" and its underlying user account? This action is irreversible.`, () => {
                             this.executeProfileDeletion(profile.profileUserId);
-                        }
+                        });
                     });
                 }
 
@@ -2157,7 +2328,7 @@
                 this.initTVCheckboxes(content);
             })
             .catch(err => {
-                alert("Failed to load profile details: " + err.message);
+                this.showAlert("Error", "Failed to load profile details: " + err.message);
                 this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
             });
         },
@@ -2173,7 +2344,7 @@
             content.innerHTML = `
                 <h1 class="profiles-title">Bonfire Grouping</h1>
                 <div class="create-profile-container" style="max-width: 500px; width: 100%;">
-                    <div id="bonfire-container" style="background: rgba(0,0,0,0.15); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px; min-height: 100px;">
+                    <div id="bonfire-container" style="width: 100%; min-height: 100px; display: flex; flex-direction: column; gap: 1.5rem;">
                         <div style="display: flex; justify-content: center; padding: 20px;">
                             <div class="profiles-loading-spinner" style="border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top: 3px solid #00a4dc; width: 24px; height: 24px; animation: spin 1s linear infinite;"></div>
                         </div>
@@ -2267,7 +2438,7 @@
                 if (!res.ok) throw new Error("Failed to delete profile");
                 this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
             })
-            .catch(err => alert("Error deleting profile: " + err.message));
+            .catch(err => this.showAlert("Error", "Error deleting profile: " + err.message));
         },
 
         loadBonfireStatus: function (content, apiClient, masterToken) {
@@ -2310,37 +2481,39 @@
             let hostSectionHtml = '';
             if (isOwner) {
                 hostSectionHtml = `
-                    <div style="margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 20px;">
-                        <label style="font-size: 0.95rem; font-weight: 700; display: block; margin-bottom: 8px; color: #ff9900;">Your Hosted Bonfire</label>
-                        <span style="font-size: 0.85rem; opacity: 0.8; display: block; margin-bottom: 8px;">Share this 6-character code with other users on the server to invite them to your bonfire:</span>
-                        <div style="font-size: 2rem; font-weight: 700; color: #22c55e; letter-spacing: 4px; margin: 12px 0; font-family: monospace; text-align: center; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px dashed rgba(34,197,94,0.3);">${ownedCode}</div>
+                    <div style="display: flex; flex-direction: column; gap: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 1.5rem;">
+                        <div class="form-group">
+                            <label style="font-size: 1.1rem; font-weight: 700; color: #ff9900; display: block; margin-bottom: 4px;">Your Hosted Bonfire</label>
+                            <span style="font-size: 0.88rem; opacity: 0.75; display: block;">Share this 6-character code with other users on the server to invite them to your bonfire:</span>
+                            <div style="font-size: 2rem; font-weight: 700; color: #22c55e; letter-spacing: 4px; margin: 12px 0; font-family: monospace; text-align: center; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border: 1px dashed rgba(34,197,94,0.3);">${ownedCode}</div>
+                        </div>
                         
-                        <div style="margin-top: 16px;">
-                            <label style="font-size: 0.9rem; font-weight: 600; margin-bottom: 8px; display: block;">Members (${ownedMembers.length})</label>
-                            <div style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; margin-bottom: 12px;">
+                        <div class="form-group">
+                            <label style="font-size: 1rem; font-weight: 600; color: #fff; display: block; margin-bottom: 8px;">Members (${ownedMembers.length})</label>
+                            <div style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 8px;">
                                 ${ownedMembers.length > 0 ? ownedMembers.map(m => {
                                     const mUserId = m.userId || m.UserId;
                                     const mUsername = m.username || m.Username || 'Unknown User';
                                     return `
-                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: rgba(255,255,255,0.03); border-radius: 4px;">
-                                        <span style="font-size: 0.9rem; font-weight: 500;">${mUsername}</span>
-                                        <button type="button" class="bonfire-kick-btn" data-id="${mUserId}" style="background: #ff6b6b; border: none; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; font-weight: 600;">Kick</button>
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px;">
+                                        <span style="font-size: 0.95rem; font-weight: 500;">${mUsername}</span>
+                                        <button type="button" class="bonfire-kick-btn" data-id="${mUserId}" style="background: #ff6b6b; border: none; color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 600; transition: background-color 0.2s;">Kick</button>
                                     </div>
                                     `;
-                                }).join('') : '<div style="font-size: 0.85rem; opacity: 0.5; font-style: italic;">No members joined yet.</div>'}
+                                }).join('') : '<div style="font-size: 0.9rem; opacity: 0.5; font-style: italic; text-align: center; padding: 12px;">No members joined yet.</div>'}
                             </div>
                         </div>
                         <div style="display: flex; justify-content: flex-end;">
-                            <button type="button" id="bonfire-delete-btn" class="profiles-btn btn-danger" style="padding: 8px 14px; font-size: 0.85rem;">Delete Group</button>
+                            <button type="button" id="bonfire-delete-btn" class="profiles-btn btn-danger" style="padding: 10px 20px; font-size: 0.95rem;">Delete Group</button>
                         </div>
                     </div>
                 `;
             } else {
                 hostSectionHtml = `
-                    <div style="margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 20px;">
-                        <label style="font-size: 0.95rem; font-weight: 700; display: block; margin-bottom: 8px; color: #ff9900;">Host a Bonfire</label>
-                        <span style="font-size: 0.85rem; opacity: 0.8; display: block; margin-bottom: 12px;">Host your own group to share your sub-profiles with friends.</span>
-                        <button type="button" id="bonfire-generate-btn" class="profiles-btn btn-primary" style="width: 100%; padding: 10px; font-weight: 600;">Generate Join Code</button>
+                    <div class="form-group" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 1.5rem;">
+                        <label style="font-size: 1.1rem; font-weight: 700; color: #ff9900; display: block; margin-bottom: 4px;">Host a Bonfire</label>
+                        <span style="font-size: 0.88rem; opacity: 0.75; display: block; margin-bottom: 12px;">Host your own group to share your sub-profiles with friends.</span>
+                        <button type="button" id="bonfire-generate-btn" class="profiles-btn btn-primary" style="width: 100%; padding: 12px; font-weight: 600;">Generate Join Code</button>
                     </div>
                 `;
             }
@@ -2348,24 +2521,26 @@
             let guestSectionHtml = '';
             if (isMember) {
                 guestSectionHtml = `
-                    <div>
-                        <label style="font-size: 0.95rem; font-weight: 700; display: block; margin-bottom: 8px; color: #3b82f6;">Joined Bonfire</label>
-                        <span style="font-size: 0.85rem; opacity: 0.8; display: block;">You have joined a bonfire group owned by:</span>
-                        <div style="font-size: 1.1rem; font-weight: 600; color: #00a4dc; margin: 8px 0;">${joinedOwnerName}</div>
-                        <span style="font-size: 0.8rem; opacity: 0.6; display: block; margin-bottom: 12px;">You can access each other's profiles from the switcher grid.</span>
+                    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+                        <div class="form-group">
+                            <label style="font-size: 1.1rem; font-weight: 700; color: #3b82f6; display: block; margin-bottom: 4px;">Joined Bonfire</label>
+                            <span style="font-size: 0.88rem; opacity: 0.75;">You have joined a bonfire group owned by:</span>
+                            <div style="font-size: 1.25rem; font-weight: 700; color: #00a4dc; margin: 12px 0; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); text-align: center;">${joinedOwnerName}</div>
+                            <span style="font-size: 0.85rem; opacity: 0.6; display: block; margin-top: -4px;">You can access each other's profiles from the switcher grid.</span>
+                        </div>
                         <div style="display: flex; justify-content: flex-end;">
-                            <button type="button" id="bonfire-leave-btn" class="profiles-btn btn-danger" style="padding: 8px 14px; font-size: 0.85rem;">Leave Group</button>
+                            <button type="button" id="bonfire-leave-btn" class="profiles-btn btn-danger" style="padding: 10px 20px; font-size: 0.95rem;">Leave Group</button>
                         </div>
                     </div>
                 `;
             } else {
                 guestSectionHtml = `
-                    <div>
-                        <label style="font-size: 0.95rem; font-weight: 700; display: block; margin-bottom: 8px; color: #3b82f6;">Join a Bonfire</label>
-                        <span style="font-size: 0.85rem; opacity: 0.8; display: block; margin-bottom: 8px;">Enter a friend's Bonfire Code to join their group:</span>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="bonfire-join-input" placeholder="e.g. B7F8XA" maxlength="6" style="flex: 1; text-align: center; text-transform: uppercase; font-family: monospace; letter-spacing: 2px;" />
-                            <button type="button" id="bonfire-join-btn" class="profiles-btn btn-primary" style="padding: 10px 18px;">Join</button>
+                    <div class="form-group">
+                        <label style="font-size: 1.1rem; font-weight: 700; color: #3b82f6; display: block; margin-bottom: 4px;">Join a Bonfire</label>
+                        <span style="font-size: 0.88rem; opacity: 0.75; display: block; margin-bottom: 12px;">Enter a friend's Bonfire Code to join their group:</span>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="text" id="bonfire-join-input" placeholder="e.g. B7F8XA" maxlength="6" style="flex: 1; text-align: center; text-transform: uppercase; font-family: monospace; letter-spacing: 2px; height: 44px; box-sizing: border-box;" />
+                            <button type="button" id="bonfire-join-btn" class="profiles-btn btn-primary" style="padding: 0 24px; height: 44px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600;">Join</button>
                         </div>
                         <div id="bonfire-join-error" style="display: none; color: #ff6b6b; font-size: 0.85rem; font-weight: 600; margin-top: 8px; text-align: center;"></div>
                     </div>
@@ -2373,7 +2548,7 @@
             }
 
             container.innerHTML = `
-                <div style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="display: flex; flex-direction: column; gap: 1.5rem; width: 100%;">
                     ${hostSectionHtml}
                     ${guestSectionHtml}
                 </div>
@@ -2383,7 +2558,7 @@
             container.querySelectorAll('.bonfire-kick-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const mId = btn.getAttribute('data-id');
-                    if (confirm('Are you sure you want to kick this user from your Bonfire group?')) {
+                    this.showConfirmDialog('Kick Member', 'Are you sure you want to kick this user from your Bonfire group?', () => {
                         fetch(apiClient.getUrl('plugins/profiles/bonfire/kick'), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders(masterToken) },
@@ -2391,10 +2566,10 @@
                         })
                         .then(res => {
                             if (res.ok) this.loadBonfireStatus(content, apiClient, masterToken);
-                            else alert('Failed to kick member.');
+                            else this.showAlert('Error', 'Failed to kick member.');
                         })
-                        .catch(err => alert('Error: ' + err.message));
-                    }
+                        .catch(err => this.showAlert('Error', 'Error: ' + err.message));
+                    });
                 });
             });
 
@@ -2402,17 +2577,17 @@
             const deleteBtn = container.querySelector('#bonfire-delete-btn');
             if (deleteBtn) {
                 deleteBtn.addEventListener('click', () => {
-                    if (confirm('Are you sure you want to delete your Bonfire group? All members will be disconnected and will no longer appear in your switcher.')) {
+                    this.showConfirmDialog('Delete Group', 'Are you sure you want to delete your Bonfire group? All members will be disconnected and will no longer appear in your switcher.', () => {
                         fetch(apiClient.getUrl('plugins/profiles/bonfire/delete-group'), {
                             method: 'POST',
                             headers: this.getAuthHeaders(masterToken)
                         })
                         .then(res => {
                             if (res.ok) this.loadBonfireStatus(content, apiClient, masterToken);
-                            else alert('Failed to delete group.');
+                            else this.showAlert('Error', 'Failed to delete group.');
                         })
-                        .catch(err => alert('Error: ' + err.message));
-                    }
+                        .catch(err => this.showAlert('Error', 'Error: ' + err.message));
+                    });
                 });
             }
 
@@ -2420,17 +2595,17 @@
             const leaveBtn = container.querySelector('#bonfire-leave-btn');
             if (leaveBtn) {
                 leaveBtn.addEventListener('click', () => {
-                    if (confirm('Are you sure you want to leave this Bonfire group? You will no longer share profile switchers.')) {
+                    this.showConfirmDialog('Leave Group', 'Are you sure you want to leave this Bonfire group? You will no longer share profile switchers.', () => {
                         fetch(apiClient.getUrl('plugins/profiles/bonfire/leave'), {
                             method: 'POST',
                             headers: this.getAuthHeaders(masterToken)
                         })
                         .then(res => {
                             if (res.ok) this.loadBonfireStatus(content, apiClient, masterToken);
-                            else alert('Failed to leave group.');
+                            else this.showAlert('Error', 'Failed to leave group.');
                         })
-                        .catch(err => alert('Error: ' + err.message));
-                    }
+                        .catch(err => this.showAlert('Error', 'Error: ' + err.message));
+                    });
                 });
             }
 
@@ -2446,7 +2621,7 @@
                         if (res.ok) this.loadBonfireStatus(content, apiClient, masterToken);
                         else return res.text().then(text => { throw new Error(text); });
                     })
-                    .catch(err => alert('Failed to generate code: ' + err.message));
+                    .catch(err => this.showAlert('Error', 'Failed to generate code: ' + err.message));
                 });
             }
 
@@ -3074,6 +3249,7 @@
                     margin-top: 1rem; font-size: 1.25rem; font-weight: 500;
                     opacity: 0.75; transition: opacity 0.3s ease;
                     display: flex; flex-direction: column; align-items: center; gap: 4px;
+                    text-align: center;
                 }
                 .profiles-limit-notice {
                     font-size: 0.85rem; color: rgba(255,255,255,0.35);
@@ -3229,16 +3405,17 @@
 
                 /* Button Styling */
                 .profiles-btn {
-                    padding: 10px 24px; border: none; border-radius: 8px;
+                    padding: 10px 24px; border: 1.5px solid transparent; border-radius: 8px;
                     font-weight: 600; font-size: 1rem; cursor: pointer;
-                    transition: background-color 0.25s ease, transform 0.2s ease;
+                    transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
                 }
                 .btn-primary {
                     background-color: #00a4dc; color: #fff;
                 }
                 .btn-primary:hover,
                 .btn-primary:focus {
-                    background-color: #0082ad; transform: translateY(-1px);
+                    background-color: #0082ad; border-color: rgba(255, 255, 255, 0.4);
+                    box-shadow: 0 0 12px rgba(0, 164, 220, 0.5); transform: translateY(-1px);
                     outline: none;
                 }
                 .btn-secondary {
@@ -3248,6 +3425,8 @@
                 .btn-secondary:hover,
                 .btn-secondary:focus {
                     background-color: rgba(255,255,255,0.15); color: #fff;
+                    border-color: #00a4dc;
+                    box-shadow: 0 0 10px rgba(0, 164, 220, 0.4);
                     outline: none;
                 }
                 .pin-actions {
