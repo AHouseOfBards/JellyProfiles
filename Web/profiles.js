@@ -204,6 +204,7 @@
                            : isDashboard                   ? 'dashboard'
                            : isHome                        ? 'home'
                                                           : 'other';
+            this._lastRouteType = viewType;
             this.evaluateFloatingBubbleVisibility(viewType);
 
             // Reveal the page now that the gate decision has been made.
@@ -330,6 +331,49 @@
             return !!sessionStorage.getItem(this.config.activeSessionKey);
         },
 
+        getCachedActiveProfile: function () {
+            const activeInfoStr = sessionStorage.getItem('jellyfin_profiles_active_info');
+            if (activeInfoStr) {
+                try {
+                    const info = JSON.parse(activeInfoStr);
+                    if (info && info.initial && info.color) return info;
+                } catch (e) {}
+            }
+
+            // Fallback: search in localStorage cached profiles
+            const currentUserId = ApiClient.getCurrentUserId();
+            if (currentUserId) {
+                try {
+                    const cachedListStr = localStorage.getItem('jellyfin_profiles_cached_list');
+                    if (cachedListStr) {
+                        const profiles = JSON.parse(cachedListStr);
+                        if (Array.isArray(profiles)) {
+                            const profile = profiles.find(p => this.normalizeGuid(p.profileUserId) === this.normalizeGuid(currentUserId));
+                            if (profile) {
+                                const info = {
+                                    name: profile.profileName,
+                                    color: profile.avatarColor || '#00A4DC',
+                                    initial: profile.avatarInitial || (profile.profileName ? profile.profileName.charAt(0).toUpperCase() : 'P')
+                                };
+                                // Store it in sessionStorage for future fast access
+                                sessionStorage.setItem('jellyfin_profiles_active_info', JSON.stringify(info));
+                                return info;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("ProfilesPlugin: Failed to read from profiles cache:", e);
+                }
+            }
+
+            // Ultimate fallback (e.g. before any profile list has been loaded)
+            return {
+                name: 'Profiles',
+                color: '#00A4DC',
+                initial: 'P'
+            };
+        },
+
         validateSessionState: function () {
             const apiClient = ApiClient;
             if (!apiClient) return;
@@ -447,6 +491,7 @@
                     allowedDeviceIds: p.allowedDeviceIds || p.AllowedDeviceIds || []
                 }));
                 this.cachedProfiles = normalized;
+                localStorage.setItem('jellyfin_profiles_cached_list', JSON.stringify(normalized));
                 this.showProfileOverlay(normalized);
             })
             .catch(err => {
@@ -2117,10 +2162,10 @@
             link.style.gap = '10px';
             link.style.cursor = 'pointer';
 
-            const activeInfo = JSON.parse(sessionStorage.getItem('jellyfin_profiles_active_info')) || {};
-            const initial = activeInfo.initial || 'P';
-            const color = activeInfo.color || '#00A4DC';
-            const name = activeInfo.name || 'Switch Profile';
+            const activeInfo = this.getCachedActiveProfile();
+            const initial = activeInfo.initial;
+            const color = activeInfo.color;
+            const name = activeInfo.name;
 
             link.innerHTML = `
                 <div class="sidebar-profile-avatar" style="width: 24px; height: 24px; border-radius: 50%; background-color: ${color}; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: bold; text-transform: uppercase; flex-shrink: 0;">
@@ -2284,8 +2329,7 @@
                     return res.json();
                 })
                 .then(profiles => {
-                    const masterUserId = ApiClient.getCurrentUserId();
-                    this.cachedProfiles = (profiles || []).map(p => ({
+                    const normalized = (profiles || []).map(p => ({
                         profileUserId: p.profileUserId || p.ProfileUserId,
                         profileName: p.profileName || p.ProfileName,
                         avatarInitial: p.avatarInitial || p.AvatarInitial,
@@ -2297,7 +2341,27 @@
                         bypassPinOnLocalNetwork: p.bypassPinOnLocalNetwork !== undefined ? p.bypassPinOnLocalNetwork : (p.BypassPinOnLocalNetwork !== undefined ? p.BypassPinOnLocalNetwork : false),
                         allowedDeviceIds: p.allowedDeviceIds || p.AllowedDeviceIds || []
                     }));
+                    this.cachedProfiles = normalized;
+                    localStorage.setItem('jellyfin_profiles_cached_list', JSON.stringify(normalized));
                     this._profilePrefetchPending = false;
+
+                    // Sync sessionStorage if matches current active user
+                    const currentUserId = ApiClient.getCurrentUserId();
+                    if (currentUserId) {
+                        const currentProfile = normalized.find(p => this.normalizeGuid(p.profileUserId) === this.normalizeGuid(currentUserId));
+                        if (currentProfile) {
+                            const info = {
+                                name: currentProfile.profileName,
+                                color: currentProfile.avatarColor || '#00A4DC',
+                                initial: currentProfile.avatarInitial || (currentProfile.profileName ? currentProfile.profileName.charAt(0).toUpperCase() : 'P')
+                            };
+                            sessionStorage.setItem('jellyfin_profiles_active_info', JSON.stringify(info));
+                        }
+                    }
+
+                    // Re-render bubble with the fetched info
+                    const currentRouteType = this._lastRouteType || 'other';
+                    this.evaluateFloatingBubbleVisibility(currentRouteType);
                 })
                 .catch(() => { this._profilePrefetchPending = false; });
         },
@@ -2371,24 +2435,12 @@
             b.title = 'Switch Profile';
             b.setAttribute('aria-label', 'Switch Profile');
 
-            const activeInfoStr = sessionStorage.getItem('jellyfin_profiles_active_info');
-            if (activeInfoStr) {
-                try {
-                    const activeInfo = JSON.parse(activeInfoStr);
-                    if (activeInfo && activeInfo.initial && activeInfo.color) {
-                        b.innerHTML = `
-                            <div class="profiles-header-avatar" style="background-color: ${activeInfo.color}; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); border: 1.5px solid rgba(255,255,255,0.25); box-sizing: border-box;">
-                                ${activeInfo.initial}
-                            </div>
-                        `;
-                        return b;
-                    }
-                } catch (e) {
-                    console.error("Failed to parse active profile info:", e);
-                }
-            }
-
-            b.innerHTML = '<span class="material-icons">people</span>';
+            const activeInfo = this.getCachedActiveProfile();
+            b.innerHTML = `
+                <div class="profiles-header-avatar" style="background-color: ${activeInfo.color}; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); border: 1.5px solid rgba(255,255,255,0.25); box-sizing: border-box;">
+                    ${activeInfo.initial}
+                </div>
+            `;
             return b;
         },
 
@@ -2407,25 +2459,12 @@
             b.style.left = pos.left;
             b.style.right = pos.right;
 
-            const activeInfoStr = sessionStorage.getItem('jellyfin_profiles_active_info');
-            if (activeInfoStr) {
-                try {
-                    const activeInfo = JSON.parse(activeInfoStr);
-                    if (activeInfo && activeInfo.initial && activeInfo.color) {
-                        b.innerHTML = `
-                            <div class="profiles-header-avatar" style="background-color: ${activeInfo.color}; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2); box-sizing: border-box; margin-right: 6px;">
-                                ${activeInfo.initial}
-                            </div>
-                            <span>${activeInfo.name}</span>
-                        `;
-                        return b;
-                    }
-                } catch (e) {
-                    console.error("Failed to parse active profile info:", e);
-                }
-            }
-
-            b.innerHTML = '<span class="material-icons" aria-hidden="true" style="font-size:1.1rem;vertical-align:middle;margin-right:5px">people</span>Profiles';
+            const activeInfo = this.getCachedActiveProfile();
+            b.innerHTML = `
+                <div class="profiles-header-avatar" style="background-color: ${activeInfo.color}; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); border: 1.5px solid rgba(255,255,255,0.25); box-sizing: border-box;">
+                    ${activeInfo.initial}
+                </div>
+            `;
             return b;
         },
 
@@ -2462,7 +2501,11 @@
             const userBtn =
                 container.querySelector('.headerButton-user, .btnCurrentUser, .headerButtonUser') ||
                 container.lastElementChild;
-            userBtn ? container.insertBefore(bubble, userBtn) : container.appendChild(bubble);
+            if (userBtn) {
+                userBtn.parentNode.insertBefore(bubble, userBtn);
+            } else {
+                container.appendChild(bubble);
+            }
         },
 
 
@@ -2678,18 +2721,19 @@
                     position: fixed;
                     bottom: 24px; left: 24px; right: auto; top: auto;
                     z-index: 9999;
-                    background: var(--theme-accent-color, #00a4dc);
-                    color: #fff; padding: 8px 18px; border-radius: 999px;
-                    font-weight: 600; cursor: pointer; font-size: 0.85rem;
-                    display: inline-flex; align-items: center;
-                    box-shadow: 0 4px 16px rgba(0,164,220,0.35);
+                    background: transparent;
+                    color: #fff; padding: 0; border-radius: 50%;
+                    cursor: pointer;
+                    display: inline-flex; align-items: center; justify-content: center;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
                     transition: transform 0.2s ease, box-shadow 0.2s ease;
                     border: none;
+                    width: 40px; height: 40px;
                 }
                 #profiles-floating-bubble.profiles-floating-fallback:hover,
                 #profiles-floating-bubble.profiles-floating-fallback:focus {
-                    transform: translateY(-2px);
-                    box-shadow: 0 8px 20px rgba(0,164,220,0.5);
+                    transform: scale(1.08) translateY(-2px);
+                    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
                     outline: none;
                 }
 
