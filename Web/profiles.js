@@ -2329,8 +2329,7 @@
                         });
                     });
                 }
-
-                // Cancel handler
+// Cancel handler
                 document.getElementById('edit-cancel-btn').addEventListener('click', () => {
                     this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
                 });
@@ -2358,24 +2357,6 @@
                             <div class="profiles-loading-spinner" style="border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top: 3px solid #00a4dc; width: 24px; height: 24px; animation: spin 1s linear infinite;"></div>
                         </div>
                     </div>
-
-                    <div id="bonfire-settings-container" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px; display: none; flex-direction: column; gap: 16px;">
-                        <div class="bonfire-form-group" style="gap: 4px;">
-                            <label class="library-check-label" style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; font-size: 0.9rem; font-weight: 600;">
-                                <input type="checkbox" id="bonfire-hide-mine-checkbox" style="cursor: pointer; accent-color: #00a4dc;" />
-                                <span>Hide my sub-profiles from others</span>
-                            </label>
-                            <div class="form-hint" style="margin-left: 1.6rem; opacity: 0.5; font-size: 0.75rem;">If enabled, guest homes you connect with won't see your sub-profiles (only your master profile).</div>
-                        </div>
-
-                        <div class="bonfire-form-group" style="gap: 4px;">
-                            <label class="library-check-label" style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; font-size: 0.9rem; font-weight: 600;">
-                                <input type="checkbox" id="bonfire-hide-others-checkbox" style="cursor: pointer; accent-color: #00a4dc;" />
-                                <span>Hide other people's sub-profiles from me</span>
-                            </label>
-                            <div class="form-hint" style="margin-left: 1.6rem; opacity: 0.5; font-size: 0.75rem;">If enabled, you will only see the master profiles of connected guest homes.</div>
-                        </div>
-                    </div>
                     
                     <div class="profile-dialog-actions" style="margin-top: 2rem; display: flex; justify-content: center;">
                         <button id="bonfire-back-btn" class="profiles-btn btn-secondary" style="padding: 10px 24px !important; font-size: 1rem !important; box-sizing: border-box !important; margin: 0 !important; display: inline-block !important;">Back</button>
@@ -2387,35 +2368,6 @@
                 this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
             });
 
-            // Settings checkbox listeners
-            const hideMineCb = content.querySelector('#bonfire-hide-mine-checkbox');
-            const hideOthersCb = content.querySelector('#bonfire-hide-others-checkbox');
-
-            const saveSettings = () => {
-                const hideMine = hideMineCb ? hideMineCb.checked : false;
-                const hideOthers = hideOthersCb ? hideOthersCb.checked : false;
-                
-                fetch(apiClient.getUrl('plugins/profiles/bonfire/settings'), {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...this.getAuthHeaders(masterState.masterToken)
-                    },
-                    body: JSON.stringify({
-                        hideMySubProfilesFromOthers: hideMine,
-                        hideOthersSubProfilesFromMe: hideOthers
-                    })
-                })
-                .then(res => {
-                    if (!res.ok) console.error("Failed to save Bonfire settings.");
-                })
-                .catch(err => console.error("Error saving Bonfire settings:", err));
-            };
-
-            if (hideMineCb) hideMineCb.addEventListener('change', saveSettings);
-            if (hideOthersCb) hideOthersCb.addEventListener('change', saveSettings);
-
-            this.initTVCheckboxes(content);
             this.loadBonfireStatus(content, apiClient, masterState.masterToken);
 
             // Auto-focus first focusable element for TV D-pad navigation
@@ -2465,15 +2417,6 @@
             })
             .then(status => {
                 this.renderBonfireStatus(container, content, status, apiClient, masterToken);
-
-                const settingsDiv = content.querySelector('#bonfire-settings-container');
-                if (settingsDiv) {
-                    settingsDiv.style.display = 'flex';
-                    const hideMineCb = content.querySelector('#bonfire-hide-mine-checkbox');
-                    const hideOthersCb = content.querySelector('#bonfire-hide-others-checkbox');
-                    if (hideMineCb) hideMineCb.checked = status.hideMySubProfilesFromOthers || status.HideMySubProfilesFromOthers || false;
-                    if (hideOthersCb) hideOthersCb.checked = status.hideOthersSubProfilesFromMe || status.HideOthersSubProfilesFromMe || false;
-                }
             })
             .catch(err => {
                 container.innerHTML = `<div style="color: #ff6b6b; font-size: 0.9rem;">Failed to load Bonfire status: ${err.message}</div>`;
@@ -2530,7 +2473,7 @@
             let guestSectionHtml = '';
             if (isMember) {
                 guestSectionHtml = `
-                    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+                    <div style="display: flex; flex-direction: column; gap: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 1.5rem;">
                         <div class="bonfire-form-group">
                             <label style="font-size: 1.1rem; font-weight: 700; color: #3b82f6; display: block; margin-bottom: 4px;">Joined Bonfire</label>
                             <span style="font-size: 0.88rem; opacity: 0.75;">You have joined a bonfire group owned by:</span>
@@ -2544,7 +2487,7 @@
                 `;
             } else {
                 guestSectionHtml = `
-                    <div class="bonfire-form-group">
+                    <div class="bonfire-form-group" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 1.5rem;">
                         <label style="font-size: 1.1rem; font-weight: 700; color: #3b82f6; display: block; margin-bottom: 4px;">Join a Bonfire</label>
                         <span style="font-size: 0.88rem; opacity: 0.75; display: block; margin-bottom: 12px;">Enter a friend's Bonfire Code to join their group:</span>
                         <div style="display: flex !important; gap: 10px !important; align-items: center !important; width: 100% !important; box-sizing: border-box !important; margin: 12px 0 !important;">
@@ -2556,10 +2499,34 @@
                 `;
             }
 
+            const hideMine = status.hideMySubProfilesFromOthers || status.HideMySubProfilesFromOthers || false;
+            const hideOthers = status.hideOthersSubProfilesFromMe || status.HideOthersSubProfilesFromMe || false;
+
+            const settingsSectionHtml = `
+                <div class="bonfire-form-group" style="margin-top: 5px; display: flex; flex-direction: column; gap: 16px;">
+                    <div class="bonfire-form-group" style="gap: 4px;">
+                        <label class="library-check-label" style="display: inline-flex !important; align-items: center !important; gap: 0.5rem !important; cursor: pointer !important; user-select: none !important; font-size: 0.9rem !important; font-weight: 600 !important; position: relative !important;">
+                            <input type="checkbox" id="bonfire-hide-mine-checkbox" ${hideMine ? 'checked' : ''} style="cursor: pointer !important; accent-color: #00a4dc !important; position: relative !important; opacity: 1 !important; width: 18px !important; height: 18px !important; margin: 0 !important; padding: 0 !important; flex-shrink: 0 !important;" />
+                            <span>Hide my sub-profiles from others</span>
+                        </label>
+                        <div class="form-hint" style="margin-left: 1.6rem !important; opacity: 0.5 !important; font-size: 0.75rem !important; position: relative !important; display: block !important;">If enabled, guest homes you connect with won't see your sub-profiles (only your master profile).</div>
+                    </div>
+
+                    <div class="bonfire-form-group" style="gap: 4px;">
+                        <label class="library-check-label" style="display: inline-flex !important; align-items: center !important; gap: 0.5rem !important; cursor: pointer !important; user-select: none !important; font-size: 0.9rem !important; font-weight: 600 !important; position: relative !important;">
+                            <input type="checkbox" id="bonfire-hide-others-checkbox" ${hideOthers ? 'checked' : ''} style="cursor: pointer !important; accent-color: #00a4dc !important; position: relative !important; opacity: 1 !important; width: 18px !important; height: 18px !important; margin: 0 !important; padding: 0 !important; flex-shrink: 0 !important;" />
+                            <span>Hide other people's sub-profiles from me</span>
+                        </label>
+                        <div class="form-hint" style="margin-left: 1.6rem !important; opacity: 0.5 !important; font-size: 0.75rem !important; position: relative !important; display: block !important;">If enabled, you will only see the master profiles of connected guest homes.</div>
+                    </div>
+                </div>
+            `;
+
             container.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 1.5rem; width: 100%;">
                     ${hostSectionHtml}
                     ${guestSectionHtml}
+                    ${settingsSectionHtml}
                 </div>
             `;
 
@@ -2672,6 +2639,36 @@
                     if (e.key === 'Enter') performJoin();
                 });
             }
+
+            // Settings checkbox listeners
+            const hideMineCb = container.querySelector('#bonfire-hide-mine-checkbox');
+            const hideOthersCb = container.querySelector('#bonfire-hide-others-checkbox');
+
+            const saveSettings = () => {
+                const hideMineVal = hideMineCb ? hideMineCb.checked : false;
+                const hideOthersVal = hideOthersCb ? hideOthersCb.checked : false;
+                
+                fetch(apiClient.getUrl('plugins/profiles/bonfire/settings'), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...this.getAuthHeaders(masterToken)
+                    },
+                    body: JSON.stringify({
+                        hideMySubProfilesFromOthers: hideMineVal,
+                        hideOthersSubProfilesFromMe: hideOthersVal
+                    })
+                })
+                .then(res => {
+                    if (!res.ok) console.error("Failed to save Bonfire settings.");
+                })
+                .catch(err => console.error("Error saving Bonfire settings:", err));
+            };
+
+            if (hideMineCb) hideMineCb.addEventListener('change', saveSettings);
+            if (hideOthersCb) hideOthersCb.addEventListener('change', saveSettings);
+
+            this.initTVCheckboxes(container);
 
             // TV D-pad Auto-focus helper
             setTimeout(() => {
