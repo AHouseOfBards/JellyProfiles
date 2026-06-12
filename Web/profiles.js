@@ -670,7 +670,7 @@
 
             const masterProfile = profiles.find(p => p.isMaster && !p.isBonfire);
             const maxSubProfiles = masterProfile ? masterProfile.maxSubProfiles : 5;
-            const subProfileCount = profiles.filter(p => !p.isMaster).length;
+            const subProfileCount = profiles.filter(p => !p.isMaster && !p.isBonfire).length;
             const atLimit = subProfileCount >= maxSubProfiles;
 
             overlay.innerHTML = `
