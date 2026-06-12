@@ -2356,17 +2356,23 @@
                         <div style="display: flex; justify-content: center; padding: 20px;">
                             <div class="profiles-loading-spinner" style="border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top: 3px solid #00a4dc; width: 24px; height: 24px; animation: spin 1s linear infinite;"></div>
                         </div>
-                    </div>
-                    
-                    <div class="profile-dialog-actions" style="margin-top: 2rem; display: flex; justify-content: center;">
-                        <button id="bonfire-back-btn" class="profiles-btn btn-secondary" style="padding: 10px 24px !important; font-size: 1rem !important; box-sizing: border-box !important; margin: 0 !important; display: inline-block !important;">Back</button>
+                        <div class="bonfire-dialog-actions" style="margin-top: 2rem !important; display: flex !important; justify-content: center !important; width: 100% !important; box-sizing: border-box !important; position: relative !important; bottom: auto !important; left: auto !important; right: auto !important; top: auto !important;">
+                            <button id="bonfire-back-btn" class="profiles-btn btn-secondary" style="padding: 10px 24px !important; font-size: 1rem !important; box-sizing: border-box !important; margin: 0 !important; display: inline-block !important; width: auto !important; flex: 0 0 auto !important; position: relative !important; bottom: auto !important; left: auto !important; right: auto !important; top: auto !important;">Back</button>
+                        </div>
                     </div>
                 </div>
             `;
 
-            document.getElementById('bonfire-back-btn').addEventListener('click', () => {
-                this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
-            });
+            const attachBackBtnListener = () => {
+                const btn = content.querySelector('#bonfire-back-btn');
+                if (btn) {
+                    btn.addEventListener('click', () => {
+                        this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
+                    });
+                }
+            };
+
+            attachBackBtnListener();
 
             this.loadBonfireStatus(content, apiClient, masterState.masterToken);
 
@@ -2527,8 +2533,22 @@
                     ${hostSectionHtml}
                     ${guestSectionHtml}
                     ${settingsSectionHtml}
+                    <div class="bonfire-dialog-actions" style="margin-top: 2rem !important; display: flex !important; justify-content: center !important; width: 100% !important; box-sizing: border-box !important; position: relative !important; bottom: auto !important; left: auto !important; right: auto !important; top: auto !important;">
+                        <button id="bonfire-back-btn" class="profiles-btn btn-secondary" style="padding: 10px 24px !important; font-size: 1rem !important; box-sizing: border-box !important; margin: 0 !important; display: inline-block !important; width: auto !important; flex: 0 0 auto !important; position: relative !important; bottom: auto !important; left: auto !important; right: auto !important; top: auto !important;">Back</button>
+                    </div>
                 </div>
             `;
+
+            // Event Listener: Back Button
+            const backBtn = container.querySelector('#bonfire-back-btn');
+            if (backBtn) {
+                backBtn.addEventListener('click', () => {
+                    const masterState = JSON.parse(localStorage.getItem(this.config.masterStorageKey));
+                    if (masterState) {
+                        this.fetchAndRenderProfiles(apiClient, masterState.masterUserId, masterState.masterToken);
+                    }
+                });
+            }
 
             // Event Listeners: Kick Members
             container.querySelectorAll('.bonfire-kick-btn').forEach(btn => {
