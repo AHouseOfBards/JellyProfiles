@@ -34,7 +34,7 @@ Once the server restarts, the plugin is active and will automatically load on al
 ## Features
 
 - **Multi-User Profile Switching**: Up to 5 isolated sub-profiles per Jellyfin account, each with separate watch history, library access, and parental ratings.
-- **Bonfire Grouping**: Link different master accounts together using secure 6-character codes to share switcher screens.
+- **Bonfire Grouping**: Link different master accounts together using secure 6-character codes to share switcher screens. (Bonfire grouping is still under development and the UI is broken)
 - **PIN Protection & LAN Bypass**: Secure profiles with PIN codes and bypass verification automatically when connected on your local network (LAN).
 - **Device Whitelists**: Limit specific profiles to designated devices.
 - **Premium UI**: Seamless native UI integration with custom profile pictures, custom avatar colors, and TV D-pad navigation support.
