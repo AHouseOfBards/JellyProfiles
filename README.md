@@ -27,14 +27,22 @@ Adds multi-user profile switching to Jellyfin. A single account can have up to f
 Once the server restarts, the plugin is active and will automatically load on all compatible clients with no further setup.
 
 > [!NOTE]
-> **Docker users:** If your container's web directory is read-only, the plugin may not load automatically. If this happens, check your Jellyfin logs for a permission fix command.
+> **Automatic Client Script Injection & Permissions:**
+> On startup, the plugin automatically patches Jellyfin's `index.html` to inject the client-side profile switcher. If the Jellyfin process lacks write permissions to its web client files (common on Docker, Linux, or restricted Windows directories), the injection will fail.
+> 
+> * **How to know:** If injection fails, a prominent **⚠️ Client Script Auto-Injection Failed** banner will appear at the top of your plugin configuration page (**Dashboard → Plugins → Profiles**) with the copy-pasteable fix commands for your host OS.
+> * **Quick Fixes:**
+>   * **Linux (Native):** Run `sudo chown -R jellyfin:jellyfin /usr/share/jellyfin/web` and restart Jellyfin.
+>   * **Docker (Run on host):** Run `docker exec -u root <container-name> sed -i 's|</body>|<script src="/plugins/profiles/profiles.js" defer></script>\n</body>|' /jellyfin/jellyfin-web/index.html`.
+>   * **Windows (Admin Command Prompt):** Run `icacls "C:\Program Files\Jellyfin\Server\jellyfin-web\index.html" /grant "NT AUTHORITY\NetworkService:(M)"` and restart Jellyfin.
 
 ---
 
 ## Features
 
 - **Multi-User Profile Switching**: Up to 5 isolated sub-profiles per Jellyfin account, each with separate watch history, library access, and parental ratings.
-- **Bonfire Grouping**: Link different master accounts together using secure 6-character codes to share switcher screens. (Bonfire grouping is still under development and the UI is broken)
+- **Resilient Deletion**: Automatically handles native Jellyfin database deletion bugs (like the playlist null reference error) by deactivating the underlying sub-profile user account and clearing plugin mappings.
+- **Bonfire Grouping**: Link different master accounts together using secure 6-character codes to share switcher screens.
 - **PIN Protection & LAN Bypass**: Secure profiles with PIN codes and bypass verification automatically when connected on your local network (LAN).
 - **Device Whitelists**: Limit specific profiles to designated devices.
 - **Premium UI**: Seamless native UI integration with custom profile pictures, custom avatar colors, and TV D-pad navigation support.
