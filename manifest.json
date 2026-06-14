@@ -2,11 +2,20 @@
   {
     "category": "General",
     "guid": "b1462fca-774b-4b13-8d02-e2d4f2bc18b9",
-    "name": "Profiles Management",
-    "description": "Adds multi-user profile switching to Jellyfin. A single account can have up to five isolated profiles with separate watch history, parental controls, and library access.",
+    "name": "Bonfire/JellyProfiles",
+    "description": "Adds multi-user profile switching to Jellyfin. A single account can have up to five isolated profiles — each with its own watch history, parental controls, and library access.",
     "overview": "Multi-user profile switching for Jellyfin.",
     "owner": "AHouseOfBards",
+    "imageUrl": "https://raw.githubusercontent.com/AHouseOfBards/Bonfire-JellyProfiles/main/images/icon.jpg",
     "versions": [
+      {
+        "version": "1.0.46.0",
+        "changelog": "Rebranding: Renamed the plugin from Profiles Management to Bonfire/JellyProfiles. Artwork: Replaced AI-generated placeholder images with a Creative Commons public domain close-up photograph of a burning campfire.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/Bonfire-JellyProfiles/releases/download/v1.0.46/Jellyfin.Profiles.zip",
+        "checksum": "00000000000000000000000000000000",
+        "timestamp": "2026-06-14T00:36:00Z"
+      },
       {
         "version": "1.0.45.0",
         "changelog": "Feature: Added prominent client-side script auto-injection warning banner directly inside the plugin dashboard settings page. If the server is unable to automatically patch index.html due to file system permission issues, the plugin dashboard will display a clear banner with copy-pasteable fix commands for Linux, Docker, and Windows.",

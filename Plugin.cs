@@ -10,7 +10,7 @@ namespace Jellyfin.Profiles
 {
     public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
-        public override string Name => "Profiles Management";
+        public override string Name => "Bonfire/JellyProfiles";
         public override Guid Id => Guid.Parse("b1462fca-774b-4b13-8d02-e2d4f2bc18b9");
 
         public static Plugin? Instance { get; private set; }

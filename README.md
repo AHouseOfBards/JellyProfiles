@@ -21,7 +21,7 @@ Adds multi-user profile switching to Jellyfin. A single account can have up to f
    ```
    https://ahouseofbards.github.io/Bonfire-JellyProfiles/manifest.json
    ```
-3. Go to **Plugins → Catalog**, find **Profiles Management**, and click **Install**
+3. Go to **Plugins → Catalog**, find **Bonfire/JellyProfiles**, and click **Install**
 4. Restart your Jellyfin server when prompted
 
 Once the server restarts, the plugin is active and will automatically load on all compatible clients with no further setup.
