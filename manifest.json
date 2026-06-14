@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/AHouseOfBards/Bonfire-JellyProfiles/main/images/icon.jpg",
     "versions": [
       {
+        "version": "1.1.0.0",
+        "changelog": "Release 1.1.0: Codebase cleanup, optimization, documentation updates, and developer API reference alignment.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/AHouseOfBards/Bonfire-JellyProfiles/releases/download/v1.1/Jellyfin.Profiles.zip",
+        "checksum": "00000000000000000000000000000000",
+        "timestamp": "2026-06-14T00:50:00Z"
+      },
+      {
         "version": "1.0.46.0",
         "changelog": "Rebranding: Renamed the plugin from Profiles Management to Bonfire/JellyProfiles. Artwork: Replaced AI-generated placeholder images with a Creative Commons public domain close-up photograph of a burning campfire.",
         "targetAbi": "10.11.0.0",

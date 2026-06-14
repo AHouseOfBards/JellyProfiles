@@ -464,7 +464,8 @@ Retrieves all user profile mappings configured on the server.
       "masterName": "john",
       "requiresPin": false
     }
-  ]
+  ],
+  "injectionSucceeded": true
 }
 ```
 
@@ -472,6 +473,7 @@ Retrieves all user profile mappings configured on the server.
 |---|---|---|
 | `masterUsers` | array | List of master accounts. Each entry has `profileUserId`, `profileName`, `requiresPin`, `maxProfiles`, and `limitOverride`. |
 | `subProfiles` | array | List of sub-profiles. Each entry has `profileUserId`, `profileName`, `masterName`, and `requiresPin`. |
+| `injectionSucceeded` | boolean | Indicates if the client-side script auto-injection into `index.html` succeeded. |
 
 * **Error Responses:**
   * `401 Unauthorized`: Caller is not authenticated, or caller is not an administrator.
